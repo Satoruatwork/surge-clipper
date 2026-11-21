@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { errorText, load, openUpdate, setState, toast, useStore } from '../lib/store'
 import type { Settings as S, UpdateInfo } from '../lib/types'
+import { AiConnectors } from '../components/AiConnectors'
 import { Field, Range, Seg, Toggle } from '../components/ui'
 
 const SECTIONS = [
@@ -158,7 +159,7 @@ export function Settings() {
           </section>
 
           <section id="set-edit">
-            <header><h2>Sound and effects</h2><p>The meme edit layer: sounds on the punchline, punch-in zooms, shakes, flashes, emoji stickers and music whose drop lands on the moment. Claude places them when a key is set; otherwise Surge places them from the chat reaction and the peak.</p></header>
+            <header><h2>Sound and effects</h2><p>The meme edit layer: sounds on the punchline, punch-in zooms, shakes, flashes, emoji stickers and music whose drop lands on the moment. The AI writer places them when a connector is set; otherwise Surge places them from the chat reaction and the peak.</p></header>
             <div className="field"><span className="label">How much editing</span>
               <Seg label="How much editing" value={str('fx_level')} onChange={set('fx_level')} options={[{ value: 'off', label: 'Off' }, { value: 'subtle', label: 'Subtle' }, { value: 'medium', label: 'Medium' }, { value: 'max', label: 'Max' }]} />
             </div>
@@ -177,14 +178,8 @@ export function Settings() {
           </section>
 
           <section id="set-ai">
-            <header><h2>AI writer</h2><p>Claude picks the best moments, trims dead air and writes hooks, titles and a different angle for each account. Without a key, Surge writes copy from the transcript and chat on its own.</p></header>
-            <Field label="Anthropic API key" htmlFor="ak" hint="Stored encrypted on this PC">
-              <input id="ak" className="input" type="password" value={str('anthropic_api_key')} onChange={(e) => set('anthropic_api_key')(e.target.value)} placeholder="sk-ant-…" autoComplete="off" />
-            </Field>
-            <div className="grid2">
-              <Field label="Model for each clip" htmlFor="m1"><input id="m1" className="input" value={str('llm_model')} onChange={(e) => set('llm_model')(e.target.value)} /></Field>
-              <Field label="Model for ranking a broadcast" htmlFor="m2"><input id="m2" className="input" value={str('llm_rank_model')} onChange={(e) => set('llm_rank_model')(e.target.value)} /></Field>
-            </div>
+            <header><h2>AI writer</h2><p>The AI picks the best moments, trims dead air and writes hooks, titles and a different angle for each account. Connect Anthropic, or any service that speaks the OpenAI format, with just a base URL and an API key. Without a connector, Surge writes copy from the transcript and chat on its own. Connectors save by themselves: the Save changes button above is for the other settings.</p></header>
+            <AiConnectors />
           </section>
 
           <section id="set-distribution">

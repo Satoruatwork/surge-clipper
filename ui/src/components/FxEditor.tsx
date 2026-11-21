@@ -25,7 +25,7 @@ export function FxEditor({ plan, duration, peak, onChange, onAuto, busy }: {
     if (kind === 'shake') base.d = 0.6
     set(p.cues.map((c, j) => (j === i ? base : c)))
   }
-  const sourceText = p.source === 'claude' ? 'Placed by Claude' : p.source === 'builtin' ? 'Placed by Surge' : p.cues.length ? 'Edited by you' : 'No effects yet'
+  const sourceText = p.source === 'ai' || p.source === 'claude' ? 'Placed by the AI writer' : p.source === 'builtin' ? 'Placed by Surge' : p.cues.length ? 'Edited by you' : 'No effects yet'
 
   return (
     <div className="section">

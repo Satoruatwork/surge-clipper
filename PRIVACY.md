@@ -21,8 +21,10 @@ Surge does talk to other services. This is everything it contacts, and when.
 - **YouTube (Google) and Instagram (Meta)**: when you connect an account and approve a post, Surge uploads the finished
   clip with its title, description and hashtags to that account through the official API, using your own developer app.
   You sign in on Google's or Instagram's own page; Surge keeps the resulting token on your PC.
-- **Anthropic**: if you add an API key, the clip's transcript, a chat summary and clip details are sent to Anthropic's API
-  to score the clip and write its copy. Without a key nothing is sent.
+- **Your AI service**: if you add an AI connector, the clip's transcript, a chat summary and clip details are sent to
+  the service you chose (Anthropic, OpenAI, Google, DeepSeek, OpenRouter, Groq, or a server you run yourself) to score the
+  clip and write its copy, and a broadcast's candidate moments are sent to rank them. Without a connector nothing is
+  sent. The key is stored encrypted on your PC and is only ever sent to the address you entered.
 - **Campaign sites**: the sign-in windows open the site you picked and keep its cookies in Surge's own browser profile on
   your PC. Surge does not automate these sites.
 
@@ -38,6 +40,8 @@ Nothing. There is no collection point. GitHub shows download counts for releases
 - Twitch: https://www.twitch.tv/p/legal/privacy-notice/
 - Kick: https://kick.com/privacy-policy
 - Anthropic: https://www.anthropic.com/legal/privacy
+- OpenAI: https://openai.com/policies/privacy-policy
+- Any other AI service you connect (DeepSeek, OpenRouter, Groq, ...): read its own privacy policy first
 - Hugging Face: https://huggingface.co/privacy
 - Pixabay: https://pixabay.com/service/privacy/
 

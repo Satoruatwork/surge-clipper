@@ -16,8 +16,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (__version__, bus, campaigns, captions, chat, config, db, distribute, fx, growth, instagram, library, live,
-               llm, pipeline, render, setup, sites, tools, transcribe, updates, vod, watch, youtube)
+from . import (__version__, bus, campaigns, captions, chat, config, connectors, db, distribute, fx, growth, instagram,
+               library, live, llm, pipeline, render, setup, sites, tools, transcribe, updates, vod, watch, youtube)
 from .config import ASSETS, DATA, RUNS, UI_DIST
 
 app = FastAPI(title="Surge")
@@ -329,6 +329,54 @@ def setup_test(what: str):
     return fn()
 
 
+# ---------------------------------------------------------------- AI connectors
+
+def _connector_call(fn):
+    try:
+        return fn()
+    except connectors.ConnectorError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/connectors")
+def connectors_overview():
+    return connectors.overview()
+
+
+@app.post("/api/connectors")
+def connectors_save(body: dict):
+    _connector_call(lambda: connectors.save(body))
+    return connectors.overview()
+
+
+@app.post("/api/connectors/test")
+def connectors_test(body: dict):
+    """Test what the form holds, saved or not."""
+    try:
+        conn = connectors.draft(body)
+    except connectors.ConnectorError as e:
+        return {"ok": False, "message": str(e)}
+    return llm.test(conn)
+
+
+@app.post("/api/connectors/models")
+def connectors_models(body: dict):
+    conn = _connector_call(lambda: connectors.draft(body, need_model=False))
+    return {"models": _connector_call(lambda: connectors.list_models(conn))}
+
+
+@app.post("/api/connectors/{cid}/activate")
+def connectors_activate(cid: str):
+    _connector_call(lambda: connectors.activate(cid))
+    return connectors.overview()
+
+
+@app.delete("/api/connectors/{cid}")
+def connectors_remove(cid: str):
+    connectors.remove(cid)
+    return connectors.overview()
+
+
 @app.get("/ig-callback")
 def ig_callback(code: str | None = None, error_description: str | None = None):
     from fastapi.responses import HTMLResponse
@@ -617,20 +665,20 @@ def cleanup(body: dict):
 
 @app.post("/api/clips/{cid}/autofx")
 def autofx(cid: int):
-    """Place the edit again: Claude when a key is set, otherwise the built-in director with a fresh variation."""
+    """Place the edit again: the AI writer when a connector is set, otherwise the built-in director with a fresh variation."""
     import random
     c = db.get("clips", cid) or _404()
     words, dur = c.get("words") or [], float(c.get("duration") or 0)
     peak_rel = float(c["peak"]) - float(c.get("start") or c["peak"])
     plan = None
-    if config.get("anthropic_api_key"):
+    if llm.enabled():
         meta = llm.write_clip({"streamer": c.get("streamer"), "platform": c.get("platform"), "game": c.get("game"),
                                "duration": dur, "chat_class": c.get("chat_class"), "chat": c.get("chat") or [],
                                "strength": (c.get("signals") or {}).get("score", 0), "peak": c["peak"],
                                "peak_rel": peak_rel, "fx_vocab": fx.vocabulary(),
                                "fx_budget": fx.LEVEL_CUES.get(config.get("fx_level") or "medium", 4), "words": words})
         if isinstance(meta.get("fx"), dict):
-            plan = fx.clean({**meta["fx"], "source": "claude"}, dur)
+            plan = fx.clean({**meta["fx"], "source": "ai"}, dur)
     if not plan or not plan["cues"]:
         plan = fx.heuristic(words, dur, peak_rel, c.get("chat_class"), transcribe.text_of(words),
                             level=config.get("fx_level") if fx.is_on() else "medium", salt=random.randint(0, 999))

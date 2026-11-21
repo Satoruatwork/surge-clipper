@@ -251,7 +251,7 @@ def _run(clip_id: int, make_raw: RawMaker) -> None:
         dur = end - start
         plan = None
         if fx.is_on(s.get("fx_level")):
-            plan = fx.clean({**meta["fx"], "source": "claude"}, dur) if isinstance(meta.get("fx"), dict) else None
+            plan = fx.clean({**meta["fx"], "source": "ai"}, dur) if isinstance(meta.get("fx"), dict) else None
             if not plan or not plan["cues"]:
                 plan = fx.heuristic(rel, dur, peak - start, clip.get("chat_class"), transcribe.text_of(rel),
                                     salt=clip_id)

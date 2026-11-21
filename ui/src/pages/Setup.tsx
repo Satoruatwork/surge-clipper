@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ExternalLink, Copy } from 'lucide-react'
 import { api } from '../lib/api'
 import { errorText, load, setState, toast, useStore } from '../lib/store'
+import { AiConnectors } from '../components/AiConnectors'
 import type { SetupStatus, Settings as S } from '../lib/types'
 
 type Test = { ok: boolean; message: string } | null
@@ -36,7 +37,6 @@ export function Setup({ go }: { go: (page: 'accounts' | 'settings') => void }) {
   const settings = useStore((s) => s.settings)
   const [st, setSt] = useState<SetupStatus | null>(null)
   const [tests, setTests] = useState<Record<string, Test>>({})
-  const [key, setKey] = useState('')
   const [meta, setMeta] = useState({ id: '', secret: '', redirect: '' })
   const [limit, setLimit] = useState(100)
   const file = useRef<HTMLInputElement>(null)
@@ -96,18 +96,9 @@ export function Setup({ go }: { go: (page: 'accounts' | 'settings') => void }) {
           <p className="muted">Clipping, captions and rendering run on this PC. Nothing to set up.</p>
         </Block>
 
-        <Block title="AI writer" ok={st.ai.key} summary={st.ai.key ? `Claude (${st.ai.model}) writes hooks, titles and the edit` : 'Optional, but titles and edits are much better with it'}>
-          <ol className="steps-list">
-            <Step n={1}>Create an API key at <Ext href="https://console.anthropic.com/settings/keys">console.anthropic.com</Ext>.</Step>
-            <Step n={2}>
-              <div className="inline-form">
-                <input className="input" type="password" placeholder={st.ai.key ? 'Key saved. Paste a new one to replace it' : 'sk-ant-…'} value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-                <button className="btn primary" disabled={!key.trim()} onClick={async () => { await save({ anthropic_api_key: key.trim() }); setKey(''); await test('ai') }}>Save and test</button>
-                {st.ai.key && <button className="btn" onClick={() => test('ai')}>Test</button>}
-              </div>
-            </Step>
-          </ol>
-          <TestLine t={tests.ai ?? null} />
+        <Block title="AI writer" ok={st.ai.on} summary={st.ai.on ? `${st.ai.name} (${st.ai.model}) writes hooks, titles and the edit` : 'Optional, but titles and edits are much better with it'}>
+          <p className="muted">Surge works without AI: its built-in writer uses the transcript and chat. Connect an AI service for sharper hooks, titles and edits: Anthropic, OpenAI, Google Gemini, DeepSeek, OpenRouter, a free model, or one running on this PC.</p>
+          <AiConnectors onChange={() => void refresh()} />
         </Block>
 
         <Block title="YouTube" ok={ytReady && g.channels > 0 ? g.broken.length === 0 : null}

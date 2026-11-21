@@ -1,12 +1,14 @@
-"""Claude writes the hook, title, description, hashtags and judges/ranks moments. Works without a key too
+"""The AI writer writes the hook, title, description, hashtags and edit plan, and judges/ranks moments, through the
+active connector (Anthropic or any OpenAI-compatible service, see connectors.py). Works without a connector too
 (heuristic writer), so the pipeline never blocks on AI."""
 from __future__ import annotations
 
 import json
 import random
 import re
+import time
 
-from . import bus, config, hype
+from . import bus, config, connectors, hype
 
 SYSTEM = """You are the head editor of a top short-form clipping channel. You turn live-stream moments into
 YouTube Shorts / Instagram Reels / TikToks that hold viewers past the first 2 seconds.
@@ -62,31 +64,125 @@ moments understandable without context. Reject menus, loading screens, dead air,
 Return JSON: {{"picks": [{{"id": "c03", "score": 1-10, "reason": "short"}}, ...]}}"""
 
 
-def _client():
-    key = config.get("anthropic_api_key")
-    if not key:
+_THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
+
+
+def parse_json(text: str) -> dict:
+    """The JSON object in a model's reply. Tolerates what models add around it: thinking blocks, code fences, a
+    sentence before or after, trailing commas."""
+    text = _THINK.sub("", text or "").strip()
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("no JSON object in the reply")
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    out = json.loads(re.sub(r",\s*([}\]])", r"\1", text[start:i + 1]))
+                except ValueError as e:
+                    raise ValueError(f"invalid JSON ({e})") from e
+                if not isinstance(out, dict):
+                    raise ValueError("the reply is not a JSON object")
+                return out
+    raise ValueError("the JSON in the reply is cut off")
+
+
+def enabled() -> bool:
+    """Is an AI connector set up? Without one Surge writes with its built-in writer."""
+    return connectors.active() is not None
+
+
+def _ask(prompt: str, rank: bool = False, max_tokens: int = 1500) -> dict | None:
+    conn = connectors.active()
+    if conn is None:
         return None
-    import anthropic
-    return anthropic.Anthropic(api_key=key, max_retries=2, timeout=60)
-
-
-def _json(text: str) -> dict:
-    text = text.strip()
-    m = re.search(r"\{.*\}", text, re.S)
-    return json.loads(m.group(0) if m else text)
-
-
-def _ask(prompt: str, model: str, max_tokens: int = 1500) -> dict | None:
-    client = _client()
-    if client is None:
-        return None
+    model = (conn["rank_model"] if rank else conn["model"]) or conn["model"]
     try:
-        msg = client.messages.create(model=model, max_tokens=max_tokens, system=SYSTEM,
-                                     messages=[{"role": "user", "content": prompt}])
-        return _json("".join(b.text for b in msg.content if getattr(b, "type", "") == "text"))
+        return parse_json(connectors.chat(conn, prompt, SYSTEM, model, max_tokens))
     except Exception as e:
-        bus.note(f"AI writer unavailable, using built-in writer ({str(e)[:120]})", "warn")
+        bus.note(f"AI writer unavailable, using built-in writer ({str(e)[:160]})", "warn")
         return None
+
+
+TEST_CLIP = """Streamer: Testy (Twitch) · Game: GTA 6
+Clip window: 32s. Chat reaction type: funny. Signal strength: 5.2.
+Top chat messages around the peak (message, count): [["KEKW", 14], ["NO WAY", 9]]
+
+Transcript (seconds from clip start):
+[  0.0] okay okay I think the cops lost me.
+[  4.5] wait no they did not lose me! oh no oh no.
+[  9.0] I drove straight into the water, I can't believe this.
+
+Return JSON: {"score": 1-10, "hook": "3-7 word on-screen hook, no emojis", "title": "Shorts title under 80 chars",
+"hashtags": ["#gta6", "#shorts", "#funny"]}"""
+
+TEST_RANK = """These are 3 candidate moments from one GTA 6 stream by Testy. Pick the 2 that make the best standalone shorts,
+best first.
+
+id c01 · signal 4.1 · chat: funny
+[ 0.0] I drove straight into the water.
+
+id c02 · signal 2.0 · chat: -
+[ 0.0] okay chat let's check the map.
+
+id c03 · signal 5.5 · chat: shock
+[ 0.0] NO WAY he just jumped the whole bridge!
+
+Return JSON: {"picks": [{"id": "c03", "score": 1-10, "reason": "short"}]}"""
+
+
+def test(conn: dict) -> dict:
+    """Run a real (small) clip prompt through a connector and check the reply is what Surge needs. Never raises."""
+    model, rank_model = conn["model"], conn.get("rank_model") or conn["model"]
+    t0 = time.time()
+    try:
+        raw = connectors.chat(conn, TEST_CLIP, SYSTEM, model, 600)
+    except connectors.ConnectorError as e:
+        return {"ok": False, "message": str(e)}
+    except Exception as e:
+        return {"ok": False, "message": f"Test failed: {str(e)[:200]}"}
+    secs = time.time() - t0
+    try:
+        out = parse_json(raw)
+    except ValueError as e:
+        return {"ok": False, "message": f"{model} answered in {secs:.1f} s but not with clean JSON ({e}). Surge would use "
+                                        "its built-in writer for every clip. Try a larger model."}
+    if not (out.get("hook") and out.get("title")):
+        return {"ok": False, "message": f"{model} answered with JSON but without the hook and title Surge asks for. "
+                                        "Try a larger model."}
+    message = f"{model} works: it answered in {secs:.1f} s with a hook ({str(out['hook'])[:40]}) and a title."
+    if rank_model != model:
+        t1 = time.time()
+        try:
+            picks = parse_json(connectors.chat(conn, TEST_RANK, SYSTEM, rank_model, 400)).get("picks")
+        except (connectors.ConnectorError, ValueError) as e:
+            return {"ok": False, "message": f"{message} The ranking model {rank_model} did not work: {e}"}
+        if not isinstance(picks, list) or not picks:
+            return {"ok": False, "message": f"{message} The ranking model {rank_model} answered without any picks. "
+                                            "Try a stronger model for ranking."}
+        message += f" Ranking model {rank_model} works too ({time.time() - t1:.1f} s)."
+    return {"ok": True, "message": message}
+
+
+def test_active() -> dict:
+    conn = connectors.active()
+    if conn is None:
+        return {"ok": False, "message": "No AI connector yet. Add one under Settings, AI writer."}
+    return test(conn)
 
 
 def transcript_lines(words: list[dict], every: float = 2.5) -> str:
@@ -120,10 +216,10 @@ def write_clip(ctx: dict) -> dict:
         sound_names=", ".join(ctx.get("fx_vocab", {}).get("sound_names", [])),
         stickers=", ".join(ctx.get("fx_vocab", {}).get("stickers", [])),
         music_moods=", ".join(ctx.get("fx_vocab", {}).get("music_moods", [])))
-    out = _ask(prompt, config.get("llm_model"), max_tokens=2500)
+    out = _ask(prompt, max_tokens=2500)
     if out and out.get("hook") and out.get("title"):
         out["hashtags"] = clean_tags(out.get("hashtags", []), ctx)
-        out["source"] = "claude"
+        out["source"] = "ai"
         return out
     return heuristic(ctx)
 
@@ -134,7 +230,7 @@ def rank(cands: list[dict], k: int, streamer: str, game: str) -> list[dict] | No
         f"chat: {c.get('chat_class') or '-'} {json.dumps(c.get('chat', [])[:5], ensure_ascii=False)}\n"
         f"{transcript_lines(c.get('words', []), 4)[:900]}" for c in cands)
     out = _ask(RANK_PROMPT.format(n=len(cands), k=k, game=game or "GTA 6", streamer=streamer, items=items),
-               config.get("llm_rank_model"), max_tokens=3000)
+               rank=True, max_tokens=3000)
     if not out or not isinstance(out.get("picks"), list):
         return None
     return out["picks"]

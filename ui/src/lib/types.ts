@@ -280,8 +280,37 @@ export interface DiscoverStream { login: string; name: string; avatar: string | 
 export interface SetupStatus {
   google: { client: { type: string | null; project_id: string | null; client_id: string | null } | null; channels: number; broken: string[]; uploads_today: number; upload_limit: number }
   meta: { app_id: boolean; secret: boolean; redirect: string; accounts: number; broken: string[]; expiring: string[] }
-  ai: { key: boolean; model: string }
+  ai: { on: boolean; name: string | null; model: string | null }
   engine: { encoder: string; models: string[]; disk_free_gb: number; disk_total_gb: number }
+}
+
+export interface Connector {
+  id: string
+  name: string
+  protocol: 'openai' | 'anthropic'
+  base_url: string
+  model: string
+  rank_model: string
+  has_key: boolean
+  key_hint: string
+}
+
+export interface ConnectorPreset {
+  id: string
+  name: string
+  protocol: 'openai' | 'anthropic'
+  base_url: string
+  model: string
+  rank_model: string
+  key_url: string | null
+  note: string
+}
+
+export interface ConnectorsData {
+  connectors: Connector[]
+  active: string | null
+  presets: ConnectorPreset[]
+  recommended: { intro: string; picks: { label: string; detail: string }[]; rules: string[] }
 }
 
 export interface Breakdown { name: string; posts: number; views: number; avg: number }

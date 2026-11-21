@@ -1,4 +1,4 @@
-"""Setup center: what's configured, what's missing, and live tests for each connection (Google, Meta, Claude)."""
+"""Setup center: what's configured, what's missing, and live tests for each connection (Google, Meta, the AI writer)."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from . import config, db, tools, youtube
+from . import config, connectors, db, llm, tools, youtube
 from .config import DATA, MODELS
 
 
@@ -51,6 +51,7 @@ def status() -> dict:
     models = sorted(p.name.replace("models--", "").split("--")[-1] for p in MODELS.glob("models--*")) \
         if MODELS.exists() else []
     disk = shutil.disk_usage(DATA)
+    ai = connectors.active()
     return {
         "google": {"client": google_client(), "channels": len(yt),
                    "broken": [a["name"] for a in yt if a["status"] == "error"],
@@ -59,7 +60,7 @@ def status() -> dict:
                  "redirect": s.get("meta_redirect_uri"), "accounts": len(ig),
                  "broken": [a["name"] for a in ig if a["status"] == "error"],
                  "expiring": [a["name"] for a in ig if a.get("token_expires") and a["token_expires"] < soon]},
-        "ai": {"key": bool(s.get("anthropic_api_key")), "model": s.get("llm_model")},
+        "ai": {"on": ai is not None, "name": ai["name"] if ai else None, "model": ai["model"] if ai else None},
         "engine": {"encoder": tools.detect_encoder(), "models": models,
                    "disk_free_gb": round(disk.free / 1e9, 1), "disk_total_gb": round(disk.total / 1e9, 1)},
     }
@@ -95,16 +96,7 @@ def test_meta() -> dict:
 
 
 def test_ai() -> dict:
-    key = config.get("anthropic_api_key")
-    if not key:
-        return {"ok": False, "message": "No Anthropic API key yet."}
-    try:
-        import anthropic
-        msg = anthropic.Anthropic(api_key=key, timeout=30).messages.create(
-            model=config.get("llm_model"), max_tokens=5, messages=[{"role": "user", "content": "Reply with OK."}])
-        return {"ok": True, "message": f"Claude answered ({msg.model})."}
-    except Exception as e:
-        return {"ok": False, "message": str(e)[:300]}
+    return llm.test_active()
 
 
 CALLBACK_HTML = """<!doctype html><meta charset="utf-8"><title>Surge</title>

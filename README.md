@@ -71,9 +71,10 @@ Good to know:
   otherwise. Set the box by hand under the crop button on a stream row.
 - **Captions**: Whisper large-v3-turbo with word timestamps, game vocabulary as hotwords, 1 to 6 words at a time
   with the spoken word popping in colour. Swearing can be masked or bleeped.
-- **Copy**: with an Anthropic API key, Claude scores each clip, trims it, and writes the hook, title,
-  description, hashtags and four extra angles so every account posts different text. Without a key, Surge
-  writes from the transcript and chat.
+- **Copy**: with an AI connector (Anthropic, or any OpenAI-compatible service such as OpenAI, Google Gemini,
+  DeepSeek, OpenRouter, Groq, or a model on your own PC), the AI scores each clip, trims it, and writes the hook,
+  title, description, hashtags and four extra angles so every account posts different text. Without one, Surge
+  writes from the transcript and chat. See [AI writer](#ai-writer-bring-your-own-model).
 
 ## Sound and effects
 
@@ -84,7 +85,7 @@ Good to know:
   `python -m surge.fetch_sounds`).
 - **Ratio and rotation**: only a share of clips gets meme sounds (Settings, default 70%), the top sounds come up
   most often, and no sound plays twice in a row.
-- **Placement**: Claude (or the built-in director) puts the hit on the payoff, a build-up before shocks, a tail after
+- **Placement**: the AI writer (or the built-in director) puts the hit on the payoff, a build-up before shocks, a tail after
   fails, a sticker on the reaction, and a small zoom in slow stretches. Edit any cue in the clip drawer.
 - **Music**: 12 Kevin MacLeod tracks (CC BY 4.0, credit line added to every post automatically). The song's drop
   lands on the clip's peak and ducks under the streamer's voice. The Sounds page lists 30 songs the clipping scene
@@ -94,8 +95,8 @@ Good to know:
 
 ## Running the operation
 
-- **Setup**: step-by-step Google Cloud and Meta app setup with live checks (client file type, Meta credentials, Claude
-  key), the YouTube upload counter for the day, and automatic Instagram sign-in when your redirect is the local
+- **Setup**: step-by-step Google Cloud and Meta app setup with live checks (client file type, Meta credentials, AI
+  connector), the YouTube upload counter for the day, and automatic Instagram sign-in when your redirect is the local
   address. Publish the Google consent screen to production, or Google signs channels out every 7 days.
 - **Accounts**: health per account (sign-in state, failures today, next post), check or reconnect, groups with shared
   posting times, tags and caps, bulk pause/resume/cap/group, and warm-up (1 post a day, one more each week).
@@ -112,6 +113,44 @@ Good to know:
   Find live GTA VI streams lists the biggest streams on Twitch right now.
 - **Performance**: views per day, top posts, and views per post by streamer, chat reaction, meme sound, layout and
   account; storage clean-up of old source footage.
+
+## AI writer: bring your own model
+
+The AI writer is optional. Surge works without it: its built-in writer uses the transcript and chat. With a model
+behind it you get sharper hooks and titles, a different angle for each account, a better edit plan, and better ranking
+of broadcast moments. You do not need an Anthropic subscription: a connector is just a **base URL** and an **API key**.
+
+Settings, AI writer, **Add connector**: pick a service (or *Custom*), paste your key, press **Fetch models**, choose a
+model for each clip and one for ranking a broadcast, then press **Test**. Surge sends a real clip prompt and checks that
+the reply is clean JSON before you rely on it. Add as many connectors as you like and switch with **Use this**. Keys are
+stored encrypted on your PC.
+
+| Service | Base URL | Each clip | Ranking a broadcast |
+|---|---|---|---|
+| Anthropic (best results) | `https://api.anthropic.com` | `claude-haiku-5-5` | `claude-sonnet-5-5` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-6-luna` | `gpt-6.2-sol` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-3.8-flash` | `gemini-4-hydrogen` |
+| DeepSeek (cheapest) | `https://api.deepseek.com` | `deepseek-flash` | `deepseek-v4-pro` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `deepseek/deepseek-v4.1-flash`, or any `:free` model | `anthropic/claude-sonnet-5.5` |
+| Groq | `https://api.groq.com/openai/v1` | press Fetch models | press Fetch models |
+| Ollama or LM Studio, on your PC | `http://localhost:11434/v1` or `http://localhost:1234/v1` | a 14B or larger instruct model | the same |
+| Anything else | any service that offers `/chat/completions` (OpenAI format) or `/v1/messages` (Anthropic format) | | |
+
+Model names above are as of November 2026; services rename models often, so **Fetch models** shows what yours offers
+today. How to choose:
+
+- **Best results**: Claude Haiku 5.5 for clips and Claude Sonnet 5.5 for ranking. Surge's prompts were written and tuned
+  with Claude.
+- **No Anthropic account**: any model on the list works if it passes **Test**. DeepSeek is the cheapest; OpenAI and
+  Gemini are solid.
+- **Free**: OpenRouter models whose name ends in `:free` (for example Gemma 4 31B), a free Google AI Studio key, or a
+  model on your own PC with Ollama. Free tiers change and are rate limited.
+- **On your own PC**: use a 14B or larger instruct model. Models under 8B often break the JSON Surge needs, and then
+  Surge falls back to its built-in writer for that clip.
+- Each clip is one short request, so pick a fast model that does not "think" first. On the cheap tier that is roughly a
+  tenth of a cent per clip. Ranking sends about 15,000 to 20,000 tokens once per broadcast, so give it a stronger model
+  with at least 64k context.
+- Azure OpenAI's per-deployment addresses and header login are not supported.
 
 ## Connect accounts
 
@@ -160,6 +199,7 @@ account per day. Reels post from this app at their slot time, so leave Surge run
 | Clips | `clips\<id>\clip.mp4` | same, inside the data folder |
 | Database | `surge.db` | same |
 | Settings | `settings.json` (API keys encrypted with Windows DPAPI) | same |
+| AI connectors | `connectors.json` (keys encrypted with Windows DPAPI) | same |
 | Account tokens | `tokens\` (encrypted with Windows DPAPI) | same |
 | Meme sound pack | `sfx\` | same |
 | Whisper models | `models\` | same |

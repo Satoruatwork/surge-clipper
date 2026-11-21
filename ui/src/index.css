@@ -350,6 +350,120 @@ a:hover {
   margin-top: 8px;
 }
 
+/* ------------------------------------------------------------------ AI connectors */
+.connectors {
+  display: grid;
+  gap: 14px;
+}
+
+.connector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-m);
+  background: var(--dusk);
+}
+
+.connector.active {
+  border-color: rgba(61, 214, 198, 0.55);
+}
+
+.connector .who {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+.connector .who span {
+  font-size: var(--t-13);
+  color: var(--mist);
+  overflow-wrap: anywhere;
+}
+
+.connector .acts,
+.connector-form .acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.connector .result {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.badge-on {
+  margin-left: 8px;
+  font-size: var(--t-12);
+  font-weight: 650;
+  color: var(--pool);
+}
+
+.connector-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-m);
+  background: var(--dusk);
+}
+
+.connector-form h3 {
+  margin: 0;
+}
+
+.connector-form .row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+
+.connector-form .test-line {
+  margin: 0;
+}
+
+.reco {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+}
+
+.reco summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.reco p,
+.reco dd,
+.reco li {
+  color: var(--mist);
+  font-size: var(--t-13);
+}
+
+.reco dl {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.reco dt {
+  font-weight: 600;
+}
+
+.reco dd {
+  margin: 0;
+}
+
+.reco ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .rail-foot .row a {
   color: var(--sodium);
   text-decoration: none;
