@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import threading
 import time
@@ -11,7 +12,7 @@ import uvicorn
 
 from . import db, distribute, live, tools
 
-PORT = 8765
+PORT = int(os.environ.get("SURGE_PORT") or 8765)  # another port for a second copy, or when 8765 is taken
 
 
 def serve() -> uvicorn.Server:

@@ -124,7 +124,7 @@ def test_state_survives_a_restart():
 
 def test_old_anthropic_key_becomes_the_first_connector(monkeypatch):
     saved = {}
-    values = {"anthropic_api_key": "sk-ant-oldkey-123456", "llm_model": "claude-haiku-5-5",
+    values = {"anthropic_api_key": "old-anthropic-key-123456", "llm_model": "claude-haiku-5-5",
               "llm_rank_model": "claude-sonnet-5-5"}
     monkeypatch.setattr(connectors.config, "get", lambda key: values.get(key, ""))
     monkeypatch.setattr(connectors.config, "save", lambda patch: saved.update(patch))
@@ -132,7 +132,7 @@ def test_old_anthropic_key_becomes_the_first_connector(monkeypatch):
     assert conn["name"] == "Anthropic" and conn["protocol"] == "anthropic" and conn["api_key"] == values["anthropic_api_key"]
     assert conn["model"] == "claude-haiku-5-5" and conn["rank_model"] == "claude-sonnet-5-5"
     assert saved == {"anthropic_api_key": ""}  # the secret now lives in one place
-    assert "sk-ant-oldkey" not in connectors.FILE.read_text(encoding="utf-8")
+    assert "old-anthropic-key" not in connectors.FILE.read_text(encoding="utf-8")
 
 
 def test_no_connector_when_nothing_is_set():

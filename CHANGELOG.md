@@ -2,6 +2,12 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.3.1
+
+- Updating while Surge is running is now safe. The installer closes Surge and the helper programs it started, checks that Surge.exe can be replaced, and if it can't, stops with a clear message before changing anything. Before, Windows could fail to close the app and the update left a half-updated install.
+- Uninstalling while Surge is running closes it the same way.
+- Set the `SURGE_PORT` environment variable to run Surge on a port other than 8765.
+
 ## 0.3.0
 
 - The AI writer is no longer Anthropic-only. Under Settings, AI writer, add a connector with just a base URL and an API key for Anthropic or any OpenAI-compatible service (OpenAI, Google Gemini, DeepSeek, OpenRouter, Groq, Ollama, LM Studio and more). No Anthropic subscription needed.

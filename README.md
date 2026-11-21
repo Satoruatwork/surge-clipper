@@ -207,7 +207,8 @@ account per day. Reels post from this app at their slot time, so leave Surge run
 | Engine code | inside `Surge.exe` | `backend\surge\` |
 | UI code | inside `Surge.exe` | `ui\src\` |
 
-Set the `SURGE_DATA` environment variable to use a different data folder.
+Set the `SURGE_DATA` environment variable to use a different data folder, and `SURGE_PORT` to run on a port other than
+8765.
 
 ## Build from source
 

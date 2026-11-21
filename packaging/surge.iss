@@ -9,11 +9,18 @@
 #ifndef AppVersionNumeric
   #define AppVersionNumeric "0.1.0.0"
 #endif
-#define AppName "Surge"
+#ifndef AppName
+  #define AppName "Surge"
+#endif
+; Test builds override AppGuid and AppName so they can never touch a real install's registration or shortcuts.
+#ifndef AppGuid
+  #define AppGuid "1FFBB38F-6BD5-4B7A-8897-F019E3B7D4A5"
+#endif
+#define AppId "{{" + AppGuid + "}"
 #define AppExe "Surge.exe"
 
 [Setup]
-AppId={{1FFBB38F-6BD5-4B7A-8897-F019E3B7D4A5}
+AppId={#AppId}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -74,6 +81,62 @@ var
 begin
   Result := (RegQueryStringValue(HKLM32, WebView2Key, 'pv', v) and (v <> '') and (v <> '0.0.0.0'))
          or (RegQueryStringValue(HKCU, WebView2Key, 'pv', v) and (v <> '') and (v <> '0.0.0.0'));
+end;
+
+{ Closes Surge and the helper programs it started (ffmpeg, yt-dlp, streamlink) when they run from Dir, and checks that
+  Surge.exe can be replaced. Windows' Restart Manager sometimes cannot close the app (error 350), and an update that
+  starts replacing files while Surge.exe is still running leaves a broken install. This runs before anything is touched. }
+function StopRunningCopies(Dir: String): Boolean;
+var
+  code: Integer;
+  cmd: String;
+begin
+  StringChangeEx(Dir, '''', '''''', True);
+  cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
+    + '$ErrorActionPreference = ''SilentlyContinue''; $d = ''' + AddBackslash(Dir) + '''; '
+    + '$stop = (Get-Date).AddSeconds(30); '
+    + 'do { '
+    + 'Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) -and $_.ProcessName -notlike ''unins*'' } | '
+    + 'ForEach-Object { if ($_.MainWindowHandle -ne 0) { [void]$_.CloseMainWindow(); [void]$_.WaitForExit(8000) }; '
+    + 'if (-not $_.HasExited) { $_.Kill(); [void]$_.WaitForExit(5000) } }; '
+    + '$exe = $d + ''Surge.exe''; $locked = $false; '
+    + 'if (Test-Path $exe) { try { $f = [IO.File]::Open($exe, ''Open'', ''ReadWrite'', ''None''); $f.Close() } catch { $locked = $true } }; '
+    + 'if (-not $locked) { exit 0 }; Start-Sleep -Seconds 1 '
+    + '} while ((Get-Date) -lt $stop); exit 1"';
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), cmd, '', SW_HIDE, ewWaitUntilTerminated, code)
+            and (code = 0);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{app}\Surge.exe')) then
+    if not StopRunningCopies(ExpandConstant('{app}')) then
+      Result := 'Surge is still running from ' + ExpandConstant('{app}') + ' and could not be closed.' + #13#10#13#10
+                + 'Quit Surge (check Task Manager for Surge.exe, ffmpeg.exe and yt-dlp.exe), then run Setup again. '
+                + 'Nothing has been changed.';
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo,
+  MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := MemoDirInfo;
+  if MemoGroupInfo <> '' then Result := Result + NewLine + NewLine + MemoGroupInfo;
+  if MemoTasksInfo <> '' then Result := Result + NewLine + NewLine + MemoTasksInfo;
+  if FileExists(ExpandConstant('{app}\Surge.exe')) then
+    Result := Result + NewLine + NewLine + 'Surge is already installed here. If it is running, Setup closes it first. '
+              + 'Your clips, accounts and settings are kept.';
+end;
+
+function InitializeUninstall: Boolean;
+begin
+  Result := True;
+  if not StopRunningCopies(ExpandConstant('{app}')) then
+  begin
+    MsgBox('Surge is still running and could not be closed. Quit it (check Task Manager), then run the uninstaller again.',
+           mbError, MB_OK);
+    Result := False;
+  end;
 end;
 
 function InitializeSetup: Boolean;
