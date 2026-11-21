@@ -41,10 +41,11 @@ def main() -> None:
     sites.seed()
     distribute.start()
     threading.Thread(target=tools.detect_encoder, daemon=True).start()
-    from . import fetch_sounds, library, watch
+    from . import fetch_sounds, library, updates, watch
     threading.Thread(target=library.warm_drops, daemon=True).start()
     threading.Thread(target=fetch_sounds.ensure, daemon=True, name="sound-pack").start()
     watch.start()
+    updates.start()
     server = serve()
     url = f"http://127.0.0.1:{PORT}"
     print(f"Surge engine running at {url}")

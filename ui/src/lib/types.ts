@@ -177,6 +177,21 @@ export interface LogEntry { text: string; level: 'info' | 'warn' | 'error'; sour
 
 export type Settings = Record<string, string | number | boolean>
 
+export interface UpdateInfo {
+  current: string
+  latest: string | null
+  available: boolean
+  url: string | null
+  download: string | null
+  size: number | null
+  sha256: string | null
+  notes: string
+  published: string | null
+  checked: number | null
+  error: string | null
+  enabled: boolean
+}
+
 export interface LibraryItem {
   id: string
   kind: 'sound' | 'song'

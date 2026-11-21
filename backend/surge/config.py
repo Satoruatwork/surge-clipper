@@ -91,6 +91,8 @@ DEFAULTS: dict = {
     "yt_daily_uploads": 100,
     "max_live": 3,
     "watch_category": "Grand Theft Auto VI",
+    # updates
+    "check_updates": True,
 }
 
 _lock = threading.Lock()

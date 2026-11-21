@@ -4,6 +4,7 @@ import { api } from './lib/api'
 import { connect, errorText, setState, toast, useStore } from './lib/store'
 import { compact } from './lib/format'
 import { Toasts } from './components/ui'
+import { UpdateBanner } from './components/UpdateBanner'
 import { ClipEditor } from './components/ClipEditor'
 import { Desk } from './pages/Desk'
 import { Clips } from './pages/Clips'
@@ -79,6 +80,7 @@ export default function App() {
   const [clipId, setClipId] = useState<number | null>(null)
   const connected = useStore((s) => s.connected)
   const encoder = useStore((s) => s.encoder)
+  const update = useStore((s) => s.update)
   const ready = useStore((s) => s.clips.filter((c) => c.status === 'ready').length)
   const queued = useStore((s) => s.stats?.posts_queued ?? 0)
   const accounts = useStore((s) => s.accounts.filter((a) => a.active).length)
@@ -111,10 +113,12 @@ export default function App() {
         <div className="rail-foot">
           <div className="row"><span>Engine</span><span><span className={`dot ${connected ? 'on' : 'live'}`} /> {connected ? 'running' : 'reconnecting'}</span></div>
           <div className="row"><span>Encoder</span><span>{encoder ? encoder.replace('h264_', '').replace('lib', '').toUpperCase() : '…'}</span></div>
+          <div className="row"><span>Version</span><span>{update ? `v${update.current}` : '…'}{update?.available && <> · <a href="#settings">update</a></>}</span></div>
         </div>
       </nav>
       <main className="main">
         <TopBar />
+        <UpdateBanner />
         <div className="page">
           {page === 'desk' && <Desk onOpenClip={setClipId} />}
           {page === 'clips' && <Clips onOpen={setClipId} />}

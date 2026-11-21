@@ -25,6 +25,9 @@ Good to know:
   it alone; the uninstaller asks before deleting it.
 - Twitch and YouTube change often. To update the downloader, run
   `"%LOCALAPPDATA%\Programs\Surge\yt-dlp.exe" -U`.
+- **Updates**: Surge asks GitHub for the newest release when it starts and every 6 hours while it runs. When there is one,
+  a banner at the top offers the download; run the new installer and it updates in place. Only the latest-release
+  info is requested: your clips, accounts and settings never leave your PC. Turn it off in Settings, Engine.
 
 ## Start it
 
@@ -210,7 +213,8 @@ git tag v0.1.0; git push origin v0.1.0
 ```
 
 The **Release** workflow (`.github/workflows/release.yml`) builds the installer on GitHub and attaches it to a new
-release. The **CI** workflow runs the tests and builds the UI on every push and pull request.
+release. Installed copies show it in the update banner on their next check (right away after a restart). The **CI**
+workflow runs the tests and builds the UI on every push and pull request.
 
 ## Credits and licenses
 

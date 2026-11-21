@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { errorText, load, setState, toast, useStore } from '../lib/store'
-import type { Settings as S } from '../lib/types'
+import { errorText, load, openUpdate, setState, toast, useStore } from '../lib/store'
+import type { Settings as S, UpdateInfo } from '../lib/types'
 import { Field, Range, Seg, Toggle } from '../components/ui'
 
 const SECTIONS = [
@@ -22,6 +22,8 @@ export function Settings() {
   const styles = useStore((s) => s.styles)
   const hasSecret = useStore((s) => s.hasGoogleSecret)
   const encoder = useStore((s) => s.encoder)
+  const update = useStore((s) => s.update)
+  const [checking, setChecking] = useState(false)
   const [d, setD] = useState<S | null>(saved)
   const file = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -42,6 +44,20 @@ export function Settings() {
       toast('Settings saved', 'good')
     } catch (e) {
       toast(errorText(e), 'bad')
+    }
+  }
+
+  const checkNow = async () => {
+    setChecking(true)
+    try {
+      const u = await api.post<UpdateInfo>('/api/update/check')
+      setState({ update: u })
+      if (u.error) toast(u.error, 'bad')
+      else toast(u.available ? `Surge ${u.latest} is available` : `You're on the latest version (${u.current})`, 'good')
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    } finally {
+      setChecking(false)
     }
   }
 
@@ -223,6 +239,17 @@ export function Settings() {
               <Field label="Frame rate" htmlFor="fps">
                 <Seg label="Frame rate" value={String(d.fps)} onChange={(v) => set('fps')(Number(v))} options={[{ value: '30', label: '30 fps' }, { value: '60', label: '60 fps' }]} />
               </Field>
+            </div>
+            <div className="field">
+              <span className="label">Updates</span>
+              <Toggle checked={!!d.check_updates} onChange={set('check_updates')} label="Look for a newer version when Surge starts" />
+              <div className="update-row">
+                <button className="btn sm" disabled={checking} onClick={checkNow}>{checking ? 'Checking…' : 'Check now'}</button>
+                {update?.available && <button className="btn sm primary" onClick={() => void openUpdate()}>Download {update.latest}</button>}
+                <span className="hint">
+                  Version {update?.current ?? '…'}{update?.available ? `, ${update.latest} is available` : ''}. Surge only asks GitHub for the latest release; your clips, accounts and settings never leave this PC.
+                </span>
+              </div>
             </div>
           </section>
         </div>

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
-import type { Account, Clip, Group, Library, LogEntry, PostRow, Pulse, Settings, Source, Stats, WatchItem } from './types'
+import type { Account, Clip, Group, Library, LogEntry, PostRow, Pulse, Settings, Source, Stats, UpdateInfo, WatchItem } from './types'
 
 export interface Toast { id: number; text: string; tone: 'info' | 'good' | 'bad' }
 
@@ -25,12 +25,13 @@ export interface State {
   library: Library | null
   watch: WatchItem[]
   groups: Group[]
+  update: UpdateInfo | null
 }
 
 let state: State = {
   sources: [], clips: [], accounts: [], posts: [], stats: null, settings: null, styles: {}, encoder: '',
   hasGoogleSecret: false, logs: [], pulses: {}, transcripts: {}, thumbs: {}, uploads: {}, spikes: {},
-  connected: false, toasts: [], library: null, watch: [], groups: [],
+  connected: false, toasts: [], library: null, watch: [], groups: [], update: null,
 }
 const listeners = new Set<() => void>()
 
@@ -65,6 +66,16 @@ export function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
+/** Open the new installer (or its release page) in the browser. The engine decides the link; the UI never passes one. */
+export async function openUpdate() {
+  try {
+    await api.post('/api/update/open')
+    toast('Opening the download in your browser. Run it and Surge updates in place; your clips and settings stay.', 'good')
+  } catch (e) {
+    toast(errorText(e), 'bad')
+  }
+}
+
 // ------------------------------------------------------------- loaders
 export const load = {
   async state() {
@@ -91,6 +102,9 @@ export const load = {
   },
   async groups() {
     setState({ groups: await api.get<Group[]>('/api/groups') })
+  },
+  async update() {
+    setState({ update: await api.get<UpdateInfo>('/api/update') })
   },
   async library() {
     setState({ library: await api.get<Library>('/api/library') })
@@ -180,6 +194,9 @@ function onMessage(m: Msg) {
     case 'watch':
       soon('watch', load.watch, 300)
       break
+    case 'update':
+      setState({ update: d as unknown as UpdateInfo })
+      break
     case 'log':
       setState((s) => ({ logs: [...s.logs.slice(-199), d as unknown as LogEntry] }))
       break
@@ -205,7 +222,7 @@ export function connect() {
   ws = new WebSocket(`${proto}://${location.host}/ws`)
   ws.onopen = () => {
     setState({ connected: true })
-    void Promise.all([load.state(), load.sources(), load.clips(), load.accounts(), load.posts(), load.stats(), load.library(), load.watch(), load.groups()])
+    void Promise.all([load.state(), load.sources(), load.clips(), load.accounts(), load.posts(), load.stats(), load.library(), load.watch(), load.groups(), load.update()])
       .then(() => state.sources.filter((s) => s.kind === 'live' && s.running).forEach((s) => void load.pulses(s.id)))
   }
   ws.onmessage = (e) => {

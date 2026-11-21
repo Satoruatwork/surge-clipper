@@ -16,8 +16,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (bus, campaigns, captions, chat, config, db, distribute, fx, growth, instagram, library, live, llm,
-               pipeline, render, setup, sites, tools, transcribe, vod, watch, youtube)
+from . import (__version__, bus, campaigns, captions, chat, config, db, distribute, fx, growth, instagram, library, live,
+               llm, pipeline, render, setup, sites, tools, transcribe, updates, vod, watch, youtube)
 from .config import ASSETS, DATA, RUNS, UI_DIST
 
 app = FastAPI(title="Surge")
@@ -64,7 +64,7 @@ def source_out(s: dict) -> dict:
 @app.get("/api/state")
 def state():
     return {"settings": config.public(), "styles": {k: v["label"] for k, v in captions.STYLES.items()},
-            "encoder": tools.detect_encoder(), "version": "1.0.0", "logs": bus.recent_logs()[-80:],
+            "encoder": tools.detect_encoder(), "version": __version__, "logs": bus.recent_logs()[-80:],
             "has_google_secret": youtube.CLIENT_FILE.exists() or bool(config.get("google_client_secret"))}
 
 
@@ -103,6 +103,23 @@ def get_settings():
 @app.put("/api/settings")
 def put_settings(body: dict):
     return config.save(body)
+
+
+@app.get("/api/update")
+def update_status():
+    return updates.status()
+
+
+@app.post("/api/update/check")
+def update_check():
+    return updates.check()
+
+
+@app.post("/api/update/open")
+def update_open():
+    if not updates.open_download():
+        raise HTTPException(404, "No update to download yet. Use Check now first.")
+    return {"ok": True}
 
 
 @app.post("/api/settings/google-secret")

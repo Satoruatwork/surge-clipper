@@ -51,9 +51,23 @@ jobs:
         run: |
           # Releases are immutable: create it, or add the installer when the release exists without one. Never overwrite.
           $setup = Get-Item build/installer/Surge-Setup-*.exe
+          # Notes: the CHANGELOG.md section for this version (shown in the app's "What's new"), else GitHub's own list.
+          $version = $env:REF_NAME.TrimStart('v')
+          $inSection = $false
+          $notes = foreach ($line in Get-Content CHANGELOG.md) {
+            if ($line -match '^##\s+(\S+)') { $inSection = ($Matches[1] -eq $version); continue }
+            if ($inSection) { $line }
+          }
+          $notes = ($notes -join "`n").Trim()
+          if ($notes) {
+            $notes += "`n`nRun the installer and Surge updates in place. If Windows SmartScreen warns about an unknown publisher, choose More info, then Run anyway. The SHA-256 is in SHA256SUMS.txt."
+            $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+            Set-Content $notesFile $notes -Encoding utf8
+            $noteArgs = @('--notes-file', $notesFile)
+          } else { $noteArgs = @('--generate-notes') }
           $assets = gh release view $env:REF_NAME --json assets --jq '.assets[].name' 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt --verify-tag --title "Surge $env:REF_NAME" --generate-notes
+            gh release create $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt --verify-tag --title "Surge $env:REF_NAME" @noteArgs
           } elseif ($assets -notcontains $setup.Name) {
             gh release upload $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt
           } else {
