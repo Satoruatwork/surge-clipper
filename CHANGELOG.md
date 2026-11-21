@@ -2,6 +2,11 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.2.1
+
+- The update check keeps working on shared and mobile networks where GitHub's request limit is already used up, and it retries after 30 minutes instead of 6 hours when a check fails.
+- Check now gives a plain message when GitHub can't be reached.
+
 ## 0.2.0
 
 - Surge now tells you when a newer version is out: a banner at the top with a download button, the version in the sidebar, and a switch plus "Check now" under Settings, Engine.

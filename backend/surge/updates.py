@@ -15,8 +15,11 @@ from . import __version__, bus, config
 REPO = "Satoruatwork/surge-clipper"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 SITE = f"https://github.com/{REPO}/"  # the only links Surge will ever open
+RELEASES = SITE + "releases/latest"
 EVERY = 6 * 3600
+RETRY = 30 * 60
 INSTALLER = re.compile(r"^Surge-Setup-.+\.exe$", re.I)
+TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
 def _blank() -> dict:
@@ -70,6 +73,31 @@ def _read(rel: dict, current: str) -> dict:
     }
 
 
+def _from_redirect(cur: str) -> dict | None:
+    """The API's anonymous quota (60 an hour per address) is quickly used up on shared and mobile networks. The public
+    releases/latest page isn't metered that way: it redirects to the newest tag, which is all the banner needs."""
+    r = httpx.get(RELEASES, headers={"User-Agent": f"Surge/{cur}"}, timeout=10, follow_redirects=False)
+    tag = str(r.headers.get("location") or "").rsplit("/", 1)[-1]
+    if r.status_code not in (301, 302, 303, 307, 308) or not TAG.match(tag):
+        return None
+    latest = tag[1:]
+    return {**_blank(), "current": cur, "latest": latest, "available": newer(latest, cur),
+            "url": f"{SITE}releases/tag/{tag}", "download": f"{SITE}releases/download/{tag}/Surge-Setup-{latest}.exe"}
+
+
+def _fetch(cur: str) -> dict:
+    r = httpx.get(LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": f"Surge/{cur}"},
+                  timeout=10, follow_redirects=True)
+    if r.status_code == 404:  # no release published yet
+        return {**_blank(), "current": cur}
+    if r.status_code in (403, 429):
+        found = _from_redirect(cur)
+        if found:
+            return found
+    r.raise_for_status()
+    return _read(r.json(), cur)
+
+
 def status() -> dict:
     with _lock:
         out = dict(_state)
@@ -82,15 +110,13 @@ def check(current: str | None = None) -> dict:
     global _notified
     cur = current or __version__
     try:
-        r = httpx.get(LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": f"Surge/{cur}"},
-                      timeout=10, follow_redirects=True)
-        if r.status_code == 404:  # no release published yet
-            found, error = {**_blank(), "current": cur}, None
-        else:
-            r.raise_for_status()
-            found, error = _read(r.json(), cur), None
+        found, error = _fetch(cur), None
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        found, error = None, ("GitHub is limiting requests from this network right now. Surge will try again soon."
+                              if code in (403, 429) else f"GitHub answered {code}.")
     except Exception as e:
-        found, error = None, f"Couldn't check for updates: {e}"
+        found, error = None, f"Couldn't reach GitHub: {e}"
     with _lock:
         if found is not None:
             _state.update(found)
@@ -117,12 +143,13 @@ def open_download() -> bool:
 def _loop() -> None:
     time.sleep(8)  # let the engine finish starting first
     while True:
+        wait = EVERY
         try:
-            if config.get("check_updates"):
-                check()
+            if config.get("check_updates") and check()["error"]:
+                wait = RETRY
         except Exception:  # the checker must never take the engine down
-            pass
-        time.sleep(EVERY)
+            wait = RETRY
+        time.sleep(wait)
 
 
 def start() -> None:

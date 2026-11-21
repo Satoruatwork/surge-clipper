@@ -29,8 +29,8 @@ def release(**over):
 
 
 class Reply:
-    def __init__(self, data=None, status=200):
-        self.data, self.status_code = data, status
+    def __init__(self, data=None, status=200, headers=None):
+        self.data, self.status_code, self.headers = data, status, headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -41,11 +41,13 @@ class Reply:
         return self.data
 
 
-def serve(monkeypatch, reply):
+def serve(monkeypatch, reply, redirect=None):
+    """The API answers `reply`; the plain releases/latest page answers `redirect`."""
     def get(url, **kw):
-        if isinstance(reply, Exception):
-            raise reply
-        return reply
+        answer = redirect if url == updates.RELEASES else reply
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
     monkeypatch.setattr(updates.httpx, "get", get)
 
 
@@ -128,6 +130,27 @@ def test_failed_check_keeps_what_was_known(monkeypatch):
     out = updates.check("0.2.0")
     assert out["available"] and out["latest"] == "0.3.0"
     assert "offline" in out["error"]
+
+
+def test_rate_limited_api_falls_back_to_the_release_redirect(monkeypatch):
+    serve(monkeypatch, Reply(None, 403), Reply(None, 302, {"location": BASE + "releases/tag/v0.3.0"}))
+    out = updates.check("0.2.0")
+    assert out["available"] and out["latest"] == "0.3.0" and out["error"] is None
+    assert out["url"] == BASE + "releases/tag/v0.3.0"
+    assert out["download"] == BASE + "releases/download/v0.3.0/Surge-Setup-0.3.0.exe"
+    assert out["size"] is None and out["sha256"] is None
+
+
+def test_rate_limited_with_no_redirect_says_so_plainly(monkeypatch):
+    serve(monkeypatch, Reply(None, 429), Reply(None, 200))
+    out = updates.check("0.2.0")
+    assert not out["available"] and "limiting" in out["error"]
+
+
+def test_a_redirect_to_an_odd_tag_is_ignored(monkeypatch):
+    serve(monkeypatch, Reply(None, 403), Reply(None, 302, {"location": BASE + "releases/tag/nightly%2Fevil"}))
+    out = updates.check("0.2.0")
+    assert not out["available"] and out["download"] is None and "limiting" in out["error"]
 
 
 def test_status_reports_the_setting(monkeypatch):
