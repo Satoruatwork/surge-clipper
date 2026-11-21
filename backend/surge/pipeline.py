@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
+
 from . import bus, config, db, facecam, fx, llm, moment, render, tools, transcribe
 from .config import CLIPS
 
@@ -110,7 +112,10 @@ def resolve_cam(source: dict, raw: Path, at: float, size: tuple[int, int]) -> tu
     if st.get("cam"):
         return st["cam"], "manual", None
     aspect = render.W / render.seam_y()
-    found = facecam.find(raw, [at + d for d in (-8, -4, 0, 3, 6, 9)], size, aspect)
+    # every overlay this source has shown cleanly (streamers move the cam between and during streams), the last
+    # one, and a box you drew for this streamer elsewhere: facecam keeps whichever fits this clip's footage
+    known = [b for b in [*(st.get("cam_seen") or []), st.get("cam_auto"), saved_cam(source, size)] if b]
+    found = facecam.find(raw, [at + d for d in (-8, -4, 0, 3, 6, 9)], size, aspect, known)
     if found["kind"] == "fullcam" and found["face"]:
         x, _, w, _ = found["face"]
         return None, "fullcam", min(1.0, max(0.0, (x + w / 2) / size[0]))
@@ -118,18 +123,35 @@ def resolve_cam(source: dict, raw: Path, at: float, size: tuple[int, int]) -> tu
         fresh = db.get("sources", source["id"]) or source
         st = fresh.get("settings") or {}
         if found["kind"] == "cam":
-            if st.get("cam_auto") != found["box"]:
+            clean = found.get("how") in ("border", "known") and found.get("fit", 0) >= 0.9
+            if clean and (st.get("cam_auto") != found["box"] or found["box"] not in (st.get("cam_seen") or [])):
                 first = not st.get("cam_auto")
                 st["cam_auto"] = found["box"]
+                st["cam_seen"] = [b for b in (st.get("cam_seen") or []) if b != found["box"]][-5:] + [found["box"]]
                 st["cam_kind"] = "cam"
                 db.update("sources", source["id"], {"settings": st})
                 bus.publish("source", {"id": source["id"], "settings": st})
                 if first:
                     bus.note(f"Facecam found for {fresh.get('channel')}", source_id=source["id"])
-            return found["box"], "auto", None
+            return found["box"], "auto" if found.get("how") == "border" else found.get("how", "auto"), None
         if st.get("cam_auto"):  # face turned away this clip: the overlay is still where it was
             return st["cam_auto"], "cached", None
     return None, "none", None
+
+
+def saved_cam(source: dict, size: tuple[int, int]) -> list[int] | None:
+    """A facecam box you set for this streamer on another row (their live row, an earlier broadcast) at the same
+    frame size: a candidate when the overlay's border can't be traced in a clip (facecam checks it still fits)."""
+    chan = (source.get("channel") or "").lower()
+    if not chan:
+        return None
+    for other in db.all("SELECT * FROM sources WHERE id != ? AND lower(channel) = ? ORDER BY updated_at DESC",
+                        (source.get("id") or 0, chan)):
+        st = other.get("settings") or {}
+        frame = st.get("frame")
+        if st.get("cam") and st.get("cam_mode") != "none" and (not frame or tuple(frame) == tuple(size)):
+            return st["cam"]
+    return None
 
 
 def pick_layout(source: dict, cam: list[int] | None, how: str = "") -> str:
@@ -179,6 +201,41 @@ def settle(session: str, clip_id: int, a: float, b: float, peak: float, min_len:
         return a, b
 
 
+def black_until(raw: Path, a: float, limit: float, step: float = 0.5) -> float:
+    """First second from `a` where the gameplay isn't a black loading or transition screen, or `limit` if it stays
+    black. Only the middle of the frame counts: that's game, wherever the facecam sits on the edges. ffmpeg reads
+    a tiny grey copy (the installed app ships OpenCV without its video reader)."""
+    if limit <= a:
+        return a
+    w, h = 64, 36
+    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-ss", f"{a:.2f}", "-i", str(raw),
+                   "-t", f"{limit - a:.2f}", "-an", "-vf",
+                   f"fps={1 / step:g},crop=iw/2:ih*2/3:iw/4:ih/6,scale={w}:{h},format=gray",
+                   "-f", "rawvideo", "-"], timeout=120, check=False)
+    pix = np.frombuffer(p.stdout or b"", np.uint8)
+    n = len(pix) // (w * h)
+    if p.returncode != 0 or n == 0:
+        return a  # can't tell: leave the cut alone
+    lit = np.nonzero(pix[:n * w * h].reshape(n, w * h).mean(axis=1) > 16)[0]
+    return a + float(lit[0]) * step if len(lit) else limit
+
+
+def viral_gate(clip: dict, env, words: list[dict], start: float, end: float) -> str | None:
+    """Already-viral moments are other people's picks: drop the ones that can't work as a captioned Short."""
+    if not (clip.get("signals") or {}).get("viral"):
+        return None
+    if env is not None and len(env):
+        run = longest = 0
+        for quiet in env[int(start / moment.HOP):int(end / moment.HOP)] < -55:
+            run = run + 1 if quiet else 0
+            longest = max(longest, run)
+        if longest * moment.HOP >= 6:
+            return "Twitch muted the audio in this part of the broadcast"
+    if sum(1 for w in words if start <= w["s"] and w["e"] <= end) < 15:
+        return "almost nothing is said, so there's nothing to caption"
+    return None
+
+
 def submit(clip_id: int, make_raw: RawMaker) -> None:
     pool().submit(_run, clip_id, make_raw)
 
@@ -200,6 +257,7 @@ def _run(clip_id: int, make_raw: RawMaker) -> None:
         prompt = f"{clip.get('streamer') or ''} playing {clip.get('game') or 'GTA 6'}."
         words = transcribe.transcribe(raw, offset=0.0, prompt=prompt) if info["has_audio"] else []
 
+        env = None
         if info["has_audio"]:  # land on the real moment, not the 1-second chat/loudness estimate
             env = moment.envelope(transcribe.decode(raw))
             sig = dict(clip.get("signals") or {})
@@ -213,9 +271,29 @@ def _run(clip_id: int, make_raw: RawMaker) -> None:
             settled_at = None
         start, end = refine(words, peak, float(s["pre_roll"]), float(s["post_roll"]),
                             float(s["clip_min"]), float(s["clip_max"]), total, settled_at)
+        problem = viral_gate(clip, env, words, start, end)
+        if problem:
+            release((clip.get("signals") or {}).get("session"), clip_id)
+            set_status(clip_id, "rejected", error=problem)
+            bus.note(f"Clip #{clip_id} skipped: {problem}", source_id=source.get("id"))
+            return
+        clear = black_until(raw, start, peak + 1.0)
+        if clear >= peak - 1.0:  # the reaction happened over a loading screen: nothing to show
+            release((clip.get("signals") or {}).get("session"), clip_id)
+            set_status(clip_id, "rejected", error="the game screen is black at the moment")
+            bus.note(f"Clip #{clip_id} skipped: the game screen is black at the moment", source_id=source.get("id"))
+            return
+        if clear > start + 0.4:  # never open on a black loading screen: it loses people in the first second
+            nxt = next((w["s"] for w in words if w["s"] >= clear), None)
+            start = nxt - 0.15 if nxt is not None and nxt - clear < 1.5 else clear
+            if end - start < float(s["clip_min"]):
+                end = min(total, start + float(s["clip_min"]))
+                hit = [w for w in words if w["s"] < end < w["e"]]
+                end = min(total, hit[-1]["e"] + 0.2) if hit else end
         set_status(clip_id, "writing")
         rel = [w for w in words if start - 0.05 <= w["s"] and w["e"] <= end + 0.3]
         meta = llm.write_clip({
+            "viewer_titles": ((clip.get("signals") or {}).get("viral") or {}).get("titles") or [],
             "streamer": clip.get("streamer"), "platform": clip.get("platform"), "game": clip.get("game"),
             "duration": end - start, "chat_class": clip.get("chat_class"), "chat": clip.get("chat") or [],
             "strength": round((clip.get("signals") or {}).get("score", 0), 1), "peak": clip["peak"],
@@ -278,7 +356,9 @@ def _run(clip_id: int, make_raw: RawMaker) -> None:
             "caption_style": clip.get("caption_style") or s["caption_style"],
             "signals": {**(clip.get("signals") or {}), "raw_start": raw_start, "focus": round(focus, 3)},
             "fx": plan or {}})
-        keep = meta.get("keep", True) and meta.get("kind") not in ("cutscene", "in-game-tv")
+        # viewers already proved an already-viral moment (often a reaction to a story scene), so it's never auto-dropped
+        keep = bool((clip.get("signals") or {}).get("viral")) or (
+            meta.get("keep", True) and meta.get("kind") not in ("cutscene", "in-game-tv"))
         set_status(clip_id, "ready" if keep else "rejected", score=float(meta.get("score") or 0),
                    thumb=str(thumb), title=meta["title"], hook=meta["hook"])
         bus.note(f"Clip #{clip_id} ready in {time.time() - t0:.0f}s · {meta['title'][:70]} "

@@ -62,7 +62,38 @@ def _clean_words(segments, offset: float) -> list[dict]:
             w["s"] = words[i - 1]["e"]
         if w["e"] <= w["s"]:
             w["e"] = round(w["s"] + 0.08, 3)
-    return words
+    return collapse_loops(words)
+
+
+def collapse_loops(words: list[dict], max_repeats: int = 8) -> list[dict]:
+    """Whisper can get stuck repeating a phrase ("oh shit" 21 times in 3 seconds over loud music). A run of the same
+    1-3 word phrase faster than anyone can talk keeps one copy; a real run is capped so captions don't turn to spam."""
+    def key(w: dict) -> str:
+        return re.sub(r"[^\w']", "", w["w"].lower())
+
+    out: list[dict] = []
+    i, n = 0, len(words)
+    while i < n:
+        best = None  # (phrase size, repeats)
+        for size in (1, 2, 3):
+            phrase = [key(w) for w in words[i:i + size]]
+            if len(phrase) < size or not all(phrase):
+                continue
+            count = 1
+            while [key(w) for w in words[i + count * size:i + (count + 1) * size]] == phrase:
+                count += 1
+            if count >= 3 and (best is None or size * count > best[0] * best[1]):
+                best = (size, count)
+        if not best:
+            out.append(words[i])
+            i += 1
+            continue
+        size, count = best
+        run = words[i:i + size * count]
+        each = (run[-1]["e"] - run[0]["s"]) / count
+        out.extend(run[:size * (1 if each < 0.3 else min(count, max_repeats))])
+        i += size * count
+    return out
 
 
 def transcribe(audio, name: str | None = None, offset: float = 0.0, prompt: str = "",

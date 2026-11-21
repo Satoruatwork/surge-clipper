@@ -142,6 +142,13 @@ class NewSource(BaseModel):
     kind: str | None = None
     target: int | None = None
     game: str | None = None
+    period: str | None = None  # Already viral: day | week | month
+
+
+def _runner(kind: str):
+    """(start, stop) for a source: the live monitor, or a batch run (past broadcast, already viral)."""
+    from . import viral
+    return {"live": (live.start, live.stop), "viral": (viral.start, viral.cancel)}.get(kind, (vod.start, vod.cancel))
 
 
 @app.get("/api/sources")
@@ -170,9 +177,11 @@ def add_source(body: NewSource):
         settings["target"] = int(body.target)
     if body.game:
         settings["game"] = body.game
+    if body.period:
+        settings["period"] = body.period
     sid = db.insert("sources", {"url": url, "platform": info["platform"], "channel": info.get("channel"),
                                 "kind": kind, "status": "starting", "settings": settings})
-    (live.start if kind == "live" else vod.start)(sid)
+    _runner(kind)[0](sid)
     return source_out(db.get("sources", sid))
 
 
@@ -180,14 +189,14 @@ def add_source(body: NewSource):
 def start_source(sid: int):
     s = db.get("sources", sid) or _404()
     db.update("sources", sid, {"status": "starting", "error": None})
-    (live.start if s["kind"] == "live" else vod.start)(sid)
+    _runner(s["kind"])[0](sid)
     return source_out(db.get("sources", sid))
 
 
 @app.post("/api/sources/{sid}/stop")
 def stop_source(sid: int):
     s = db.get("sources", sid) or _404()
-    (live.stop if s["kind"] == "live" else vod.cancel)(sid)
+    _runner(s["kind"])[1](sid)
     return {"ok": True}
 
 
@@ -205,10 +214,25 @@ def patch_source(sid: int, body: dict):
 @app.delete("/api/sources/{sid}")
 def delete_source(sid: int):
     s = db.get("sources", sid) or _404()
-    (live.stop if s["kind"] == "live" else vod.cancel)(sid)
+    _runner(s["kind"])[1](sid)
     db.execute("DELETE FROM sources WHERE id=?", (sid,))
     shutil.rmtree(RUNS / f"src{sid:04d}", ignore_errors=True)
     return {"ok": True}
+
+
+@app.post("/api/sources/{sid}/export")
+def export_source(sid: int):
+    db.get("sources", sid) or _404()
+    from . import exports
+    try:
+        folder, n = exports.export_source(sid)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    try:
+        os.startfile(folder)  # noqa: S606 - opens the folder in Explorer on this PC
+    except Exception:
+        pass
+    return {"folder": str(folder), "count": n}
 
 
 @app.get("/api/sources/{sid}/pulse")

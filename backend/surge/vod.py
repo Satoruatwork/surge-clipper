@@ -57,6 +57,18 @@ def _hdr_args(headers: dict) -> list[str]:
     return ["-headers", "".join(f"{k}: {v}\r\n" for k, v in keep.items())]
 
 
+def cut_section(urls: list[str], headers: dict, a: float, b: float, out: Path) -> Path:
+    """Cut [a, b] of a broadcast (one combined input, or separate video + audio inputs) into an edit-ready file."""
+    inputs = []
+    for u in urls:
+        inputs += [*_hdr_args(headers), "-ss", f"{a:.2f}", "-i", u]
+    maps = ["-map", "0:v:0", "-map", f"{1 if len(urls) > 1 else 0}:a:0?"]
+    tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *inputs, *maps, "-t", f"{b - a:.2f}",
+               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", "192k", str(out)],
+              timeout=900)
+    return out
+
+
 def _run(sid: int, cancel_ev: threading.Event) -> None:
     try:
         src = db.get("sources", sid)
@@ -223,15 +235,7 @@ def _run(sid: int, cancel_ev: threading.Event) -> None:
             a, b = max(0.0, c["peak"] - pre - 14), min(duration or n, c["peak"] + post + 16)
 
             def make_raw(d: Path, a=a, b=b) -> tuple[Path, float]:
-                raw = d / "raw.mp4"
-                inputs = []
-                for u in ([url] if local else vurls):
-                    inputs += [*([] if local else _hdr_args(vheaders)), "-ss", f"{a:.2f}", "-i", u]
-                maps = ["-map", "0:v:0", "-map", f"{1 if len(vurls) > 1 else 0}:a:0?"]
-                tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *inputs, *maps, "-t", f"{b - a:.2f}",
-                           "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", "192k",
-                           str(raw)], timeout=900)
-                return raw, a
+                return cut_section([url] if local else vurls, {} if local else vheaders, a, b, d / "raw.mp4"), a
 
             pipeline.submit(cid, make_raw)
 

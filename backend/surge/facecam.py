@@ -88,15 +88,36 @@ def _line_strength(edge: np.ndarray, vertical: bool, pos: int, a: int, b: int) -
     return float(band.max(axis=1).mean()) if band.size else 0.0
 
 
-def border_box(frames: list, face, fw: int, fh: int) -> list[int] | None:
-    """Snap to the overlay's own frame: the nearest long straight edges around the face that stay put while the
-    picture changes. Returns [x, y, w, h] or None when the overlay has no clear border."""
+def persistent_edges(frames: list, fw: int) -> np.ndarray | None:
+    """Edges that stay put while the picture changes: an overlay's border, not the game moving behind it."""
     import cv2
     grays = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames if f is not None and f.shape[1] == fw]
     if len(grays) < 3:
         return None
-    persist = np.mean([cv2.Canny(cv2.GaussianBlur(g, (3, 3), 0), 40, 120) > 0 for g in grays], axis=0)
-    edge = persist >= 0.5
+    return np.mean([cv2.Canny(cv2.GaussianBlur(g, (3, 3), 0), 40, 120) > 0 for g in grays], axis=0) >= 0.5
+
+
+def box_fit(edge: np.ndarray, box) -> float:
+    """How well a box's four sides sit on long static lines (1 = all of them). A side on the frame's own edge
+    counts as a fit, since overlays often sit in a corner. Allows a few pixels of slack for hand-drawn boxes."""
+    fh, fw = edge.shape
+    x, y, w, h = (int(v) for v in box)
+    sides = []
+    for vertical, pos, a, b, limit in ((False, y - 2, x, x + w, fh), (False, y + h + 2, x, x + w, fh),
+                                       (True, x - 2, y, y + h, fw), (True, x + w + 2, y, y + h, fw)):
+        if pos <= 6 or pos >= limit - 7:
+            sides.append(1.0)
+        else:
+            sides.append(max(_line_strength(edge, vertical, p, a + 4, b - 4) for p in range(pos - 8, pos + 9)))
+    return float(np.mean(sides))
+
+
+def border_box(frames: list, face, fw: int, fh: int, edge: np.ndarray | None = None) -> list[int] | None:
+    """Snap to the overlay's own frame: the nearest long straight edges around the face that stay put while the
+    picture changes. Returns [x, y, w, h] or None when the overlay has no clear border."""
+    edge = edge if edge is not None else persistent_edges(frames, fw)
+    if edge is None:
+        return None
     x, y, w, h = (int(v) for v in face)
     cx, cy = x + w // 2, y + h // 2
     # a border must at least run along the face's own rows/columns
@@ -127,8 +148,12 @@ def border_box(frames: list, face, fw: int, fh: int) -> list[int] | None:
     return [bx - bx % 2, by - by % 2, bw - bw % 2, bh - bh % 2]
 
 
-def find(src: str | Path, times: list[float], size: tuple[int, int], aspect: float) -> dict:
-    """Returns {'box': [x,y,w,h] | None, 'face': ..., 'kind': 'cam'|'fullcam'|'none', 'how': 'border'|'estimate'}."""
+def find(src: str | Path, times: list[float], size: tuple[int, int], aspect: float,
+         known: list | tuple = ()) -> dict:
+    """Returns {'box': [x,y,w,h] | None, 'face': ..., 'kind': 'cam'|'fullcam'|'none',
+    'how': 'border'|'known'|'estimate'}. `known`: boxes seen for this streamer before. When the border can't be
+    traced (the streamer stood up, the face is small), the known box whose sides sit on this footage's static
+    edges and that holds the face wins over a guess around the face: streamers move their cam between streams."""
     fw, fh = size
     frames = [grab_frame(src, t) for t in times]
     face = cluster(detect(frames), fw)
@@ -139,8 +164,18 @@ def find(src: str | Path, times: list[float], size: tuple[int, int], aspect: flo
     if face[2] > fw * 0.22 or not in_corner:
         # a big or centred face is the scene itself ("just chatting" camera), not a webcam overlay
         return {"box": None, "face": [int(v) for v in face], "kind": "fullcam"}
-    box = border_box(frames, face, fw, fh)
-    how = "border"
-    if box is None:
-        box, how = cam_box(face, fw, fh, aspect), "estimate"
-    return {"box": box, "face": [int(v) for v in face], "kind": "cam", "how": how}
+    edge = persistent_edges(frames, fw)
+    cands = []
+    traced = border_box(frames, face, fw, fh, edge)
+    if traced:
+        cands.append((box_fit(edge, traced), "border", traced))
+    if edge is not None:  # a static line in the streamer's room can stop the trace short of the real border
+        fx, fy = face[0] + face[2] / 2, face[1] + face[3] / 2
+        cands += [(box_fit(edge, b), "known", list(b)) for b in known
+                  if b and b[0] <= fx <= b[0] + b[2] and b[1] <= fy <= b[1] + b[3]]
+    cands = [c for c in cands if c[0] >= 0.6]
+    if cands:  # best fit; among near-equal fits the bigger box, which reaches the overlay's real edge
+        fit, how, box = max(cands, key=lambda c: (round(c[0], 1), c[2][2] * c[2][3]))
+        return {"box": box, "face": [int(v) for v in face], "kind": "cam", "how": how, "fit": round(fit, 3)}
+    return {"box": cam_box(face, fw, fh, aspect), "face": [int(v) for v in face], "kind": "cam", "how": "estimate",
+            "fit": 0.0}

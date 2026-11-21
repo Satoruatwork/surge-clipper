@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Crop, Play, Square, Trash2, RotateCw } from 'lucide-react'
+import { Crop, FolderDown, Play, Square, Trash2, RotateCw } from 'lucide-react'
 import { api } from '../lib/api'
 import { errorText, load, setState, toast, useStore } from '../lib/store'
 import type { Clip, Source } from '../lib/types'
@@ -13,16 +13,21 @@ const IN_FLIGHT = ['queued', 'cutting', 'transcribing', 'writing', 'rendering']
 
 function AddBar() {
   const [url, setUrl] = useState('')
-  const [mode, setMode] = useState<'auto' | 'live' | 'vod'>('auto')
+  const [mode, setMode] = useState<'auto' | 'live' | 'vod' | 'viral'>('auto')
+  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('day')
   const [target, setTarget] = useState(25)
   const [busy, setBusy] = useState(false)
+  const viral = mode === 'viral'
   const submit = async () => {
     if (!url.trim()) return
     setBusy(true)
     try {
-      const s = await api.post<Source>('/api/sources', { url, kind: mode === 'auto' ? null : mode, target })
+      const s = await api.post<Source>('/api/sources', {
+        url, kind: mode === 'auto' ? null : mode, target, period: viral ? period : undefined,
+      })
       setState((st) => ({ sources: [s, ...st.sources.filter((x) => x.id !== s.id)] }))
-      toast(s.kind === 'live' ? `Watching ${s.channel ?? 'stream'} live` : 'Clipping the broadcast', 'good')
+      toast(s.kind === 'live' ? `Watching ${s.channel ?? 'stream'} live`
+        : s.kind === 'viral' ? `Finding ${s.channel ?? 'the channel'}'s most-clipped moments` : 'Clipping the broadcast', 'good')
       setUrl('')
     } catch (e) {
       toast(errorText(e), 'bad')
@@ -38,14 +43,25 @@ function AddBar() {
         className="input"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
-        placeholder="Paste a Twitch, Kick or YouTube link: a live channel or a past broadcast"
+        placeholder={viral
+          ? 'Paste a Twitch channel, like twitch.tv/kaicenat'
+          : 'Paste a Twitch, Kick or YouTube link: a live channel or a past broadcast'}
         autoComplete="off"
         spellCheck={false}
       />
       <Seg label="Mode" value={mode} onChange={setMode} options={[
         { value: 'auto', label: 'Detect' }, { value: 'live', label: 'Live' }, { value: 'vod', label: 'Past broadcast' },
+        { value: 'viral', label: 'Already viral' },
       ]} />
-      <label className="target" title="How many clips to make from a past broadcast">
+      {viral && (
+        <select className="select" aria-label="Clipped in the last" value={period}
+          onChange={(e) => setPeriod(e.target.value as 'day' | 'week' | 'month')}>
+          <option value="day">Last 24 hours</option>
+          <option value="week">Last 7 days</option>
+          <option value="month">Last 30 days</option>
+        </select>
+      )}
+      <label className="target" title={viral ? 'How many of the most-clipped moments to make' : 'How many clips to make from a past broadcast'}>
         <input className="input num" type="number" min={3} max={60} value={target} onChange={(e) => setTarget(Number(e.target.value))} />
         clips
       </label>
@@ -94,6 +110,14 @@ function Monitor({ s, clips, onFrame }: { s: Source; clips: Clip[]; onFrame: () 
       toast(errorText(e), 'bad')
     }
   }
+  const exportAll = async () => {
+    try {
+      const r = await api.post<{ folder: string; count: number }>(`/api/sources/${s.id}/export`)
+      toast(`${r.count} clips and captions.txt saved to ${r.folder}`, 'good')
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    }
+  }
   const remove = async () => {
     if (!confirmDanger(`Remove ${name}? Clips already made stay in your library.`)) return
     await api.del(`/api/sources/${s.id}`)
@@ -103,7 +127,7 @@ function Monitor({ s, clips, onFrame }: { s: Source; clips: Clip[]; onFrame: () 
   return (
     <article className={`monitor${spiking ? ' is-spiking' : ''}`} aria-label={name}>
       <div className="frame">
-        {thumbUrl ? <img src={`${thumbUrl}?v=${thumbV ?? 0}`} alt="" /> : <div className="nothumb">{isLive ? 'Preview appears once the stream connects' : 'Past broadcast'}</div>}
+        {thumbUrl ? <img src={`${thumbUrl}?v=${thumbV ?? 0}`} alt="" /> : <div className="nothumb">{isLive ? 'Preview appears once the stream connects' : s.kind === 'viral' ? 'Most-clipped moments' : 'Past broadcast'}</div>}
         <span className="badge"><span className={`dot ${st.dot}`} />{platformName[s.platform] ?? s.platform}</span>
       </div>
       <div className="body">
@@ -120,6 +144,12 @@ function Monitor({ s, clips, onFrame }: { s: Source; clips: Clip[]; onFrame: () 
                 <div className="readout"><b>{made}</b><span>clips{working ? ` +${working}` : ''}</span></div>
                 <div className="readout"><b>{timecode(s.stats.uptime)}</b><span>watched</span></div>
               </>
+            ) : s.kind === 'viral' ? (
+              <>
+                <div className="readout"><b>{s.stats.moments ?? '–'}</b><span>moments</span></div>
+                <div className="readout"><b>{s.stats.views ? compact(s.stats.views) : '–'}</b><span>clip views</span></div>
+                <div className="readout"><b>{made}</b><span>clips{working ? ` +${working}` : ''}</span></div>
+              </>
             ) : (
               <>
                 <div className="readout"><b>{timecode(s.stats.duration)}</b><span>length</span></div>
@@ -129,6 +159,7 @@ function Monitor({ s, clips, onFrame }: { s: Source; clips: Clip[]; onFrame: () 
           </div>
           <div className="tools">
             {isLive && <button className="btn ghost icon sm" onClick={onFrame} aria-label="Facecam and layout" title="Facecam and layout"><Crop size={16} /></button>}
+            {!isLive && made > 0 && <button className="btn ghost icon sm" onClick={exportAll} aria-label="Export clips to a folder" title="Export clips and captions to a folder"><FolderDown size={15} /></button>}
             {running ? (
               <button className="btn ghost icon sm" onClick={() => act('stop', isLive ? 'Stopped watching' : 'Cancelled')} aria-label="Stop" title="Stop"><Square size={15} /></button>
             ) : (

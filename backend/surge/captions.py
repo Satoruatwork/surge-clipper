@@ -42,11 +42,16 @@ PROFANE = {"fuck", "fucking", "fucked", "fucker", "motherfucker", "shit", "shitt
            "bitches", "asshole", "cunt", "dick", "pussy", "nigga", "nigger", "faggot", "fag", "retard", "retarded",
            "slut", "whore", "cock", "bastard", "damn", "goddamn"}
 _SOFT = {"damn", "goddamn", "bastard"}  # masked in captions only when profanity mode is strict
+# streamers say these in every form ("niggas", "fuckin'", "motherfuckers", "dipshit"): match the root, not the word
+_INSIDE = ("fuck", "shit", "nigg")
+_STARTS = ("bitch", "cunt", "pussy", "whore", "slut", "faggot", "retard")
 
 
 def is_profane(word: str) -> bool:
     w = re.sub(r"[^a-z]", "", word.lower())
-    return w in PROFANE and w not in _SOFT
+    if w in _SOFT:
+        return False
+    return w in PROFANE or any(r in w for r in _INSIDE) or w.startswith(_STARTS)
 
 
 def mask(word: str) -> str:

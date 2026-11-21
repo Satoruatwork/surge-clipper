@@ -981,8 +981,8 @@ h2 {
 }
 
 .addbar {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  display: flex;
+  flex-wrap: wrap; /* the controls drop under the link box when the window is narrow */
   gap: 10px;
   align-items: center;
   padding: 12px;
@@ -996,6 +996,23 @@ h2 {
   height: 42px;
   font-size: 15px;
   background: var(--night);
+}
+
+.addbar > #add-url {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.addbar > .seg,
+.addbar > .select,
+.addbar > .target,
+.addbar > .btn {
+  flex: none;
+}
+
+.addbar > .select {
+  height: 34px;
+  width: auto;
 }
 
 .addbar .target {

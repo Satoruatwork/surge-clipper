@@ -7,7 +7,7 @@ export interface Source {
   platform: 'twitch' | 'kick' | 'youtube' | 'file' | string
   channel: string | null
   title: string | null
-  kind: 'live' | 'vod'
+  kind: 'live' | 'vod' | 'viral'
   status: SourceStatus
   stage: string | null
   progress: number
@@ -23,6 +23,7 @@ export interface Source {
     target?: number
     game?: string
     audio_shift_ms?: number
+    period?: 'day' | 'week' | 'month'
   }
   stats: {
     uptime?: number
@@ -35,6 +36,8 @@ export interface Source {
     curve?: number[]
     step?: number
     peaks?: number[]
+    views?: number
+    moments?: number
   }
   running: boolean
   thumb_url: string | null

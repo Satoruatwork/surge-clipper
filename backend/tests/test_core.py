@@ -251,3 +251,79 @@ def test_campaign_code_lands_in_caption(monkeypatch):
     camp = {"id": 3, "name": "x", "code": "VYRO-7731", "hashtags": [], "mentions": []}
     clip = {"id": 4, "title": "t", "description": "d", "streamer": "kaicenat", "platform": "twitch", "hashtags": ["#gta6"]}
     assert "VYRO-7731" in distribute.compose(clip, {"platform": "instagram"}, 0, camp)["description"]
+
+
+def test_whisper_loops_collapse_but_real_repeats_stay():
+    from surge.transcribe import collapse_loops
+    loop = [{"w": "oh" if i % 2 == 0 else "shit,", "s": 40 + i * 0.08, "e": 40 + i * 0.08 + 0.05} for i in range(42)]
+    assert [w["w"] for w in collapse_loops(loop)] == ["oh", "shit,"]          # 21x in 3.3 s: one copy
+    real = [{"w": x, "s": i * 0.5, "e": i * 0.5 + 0.3} for i, x in enumerate("no no no no no no hold my hand".split())]
+    assert len(collapse_loops(real)) == 9                                     # spoken at a human pace: kept
+
+
+def test_viral_moments_group_clips_of_one_moment():
+    from surge import viral
+    clips = [
+        {"title": "KAI WTF", "views": 321, "duration": 12, "offset": 14747, "video": "v2", "game": "Grand Theft Auto VI"},
+        {"title": "niko", "views": 74, "duration": 38, "offset": 14764, "video": "v2", "game": "Grand Theft Auto VI"},
+        {"title": "other broadcast", "views": 500, "duration": 30, "offset": 14750, "video": "v1", "game": "Grand Theft Auto VI"},
+        {"title": "chatting", "views": 900, "duration": 30, "offset": 100, "video": "v1", "game": "Just Chatting"},
+        {"title": "deleted vod", "views": 999, "duration": 30, "offset": None, "video": None, "game": "Grand Theft Auto VI"},
+    ]
+    ms = viral.moments(clips, "Grand Theft Auto VI")
+    assert [(m["video"], m["views"], len(m["clips"])) for m in ms] == [("v1", 500, 1), ("v2", 395, 2)]
+    assert ms[1]["a"] == 14747                       # the most-viewed clip sets the window
+
+
+def test_viral_peak_is_the_loud_part_inside_the_clip():
+    from surge import viral
+    m = {"a": 100.0, "b": 130.0, "clips": [{"views": 300, "offset": 100.0, "duration": 30.0}]}
+    loud = np.full(65, -40.0, np.float32)            # audio from t0=80 s to 145 s
+    loud[42:45] = -8.0                               # Kai yells at 122-125 s
+    loud[5] = 0.0                                    # a louder bang at 85 s, outside the clip
+    assert 121 <= viral.peak_in(m, loud, 80.0) <= 126
+
+
+def test_viral_gate_drops_muted_and_silent_moments():
+    viral_clip = {"signals": {"viral": {"views": 10}}}
+    talk = [{"w": "word", "s": 1 + i * 0.5, "e": 1.3 + i * 0.5} for i in range(40)]
+    env = np.full(2000, -20.0, np.float32)           # 40 s of audio at 20 ms
+    assert pipeline.viral_gate(viral_clip, env, talk, 0, 30) is None
+    muted = env.copy()
+    muted[500:900] = -100.0                          # 8 s of Twitch-muted silence
+    assert "muted" in pipeline.viral_gate(viral_clip, muted, talk, 0, 30)
+    assert "nothing" in pipeline.viral_gate(viral_clip, env, talk[:5], 0, 30)
+    assert pipeline.viral_gate({"signals": {}}, muted, [], 0, 30) is None   # live/VOD clips aren't gated
+
+
+def test_profanity_mask_catches_every_form():
+    for w in ("niggas", "fuckin'", "Motherfuckers,", "dipshit", "bitches", "shitting", "Fuck!"):
+        assert captions.is_profane(w), w
+    for w in ("damn", "shiitake", "Dickens", "cocktail", "class", "snigger"[:0] or "night"):
+        assert not captions.is_profane(w), w
+
+
+def test_cam_box_set_on_one_row_carries_to_the_streamers_other_rows(monkeypatch):
+    rows = [{"id": 3, "channel": "KaiCenat", "settings": {"cam": [20, 427, 354, 227], "frame": [1920, 1080]}}]
+    monkeypatch.setattr(pipeline.db, "all", lambda sql, args=(): [r for r in rows if r["id"] != args[0]
+                                                                 and r["channel"].lower() == args[1]])
+    viral_row = {"id": 4, "channel": "KaiCenat", "settings": {}}
+    assert pipeline.saved_cam(viral_row, (1920, 1080)) == [20, 427, 354, 227]
+    assert pipeline.saved_cam(viral_row, (1280, 720)) is None          # another frame size: the box doesn't fit
+    assert pipeline.saved_cam({"id": 5, "channel": "xqc", "settings": {}}, (1920, 1080)) is None
+
+
+def test_known_cam_box_is_checked_against_the_overlay_border():
+    from surge import facecam
+    rng = np.random.default_rng(1)
+    frames = []
+    for _ in range(4):
+        f = np.full((540, 960, 3), int(rng.integers(0, 120)), np.uint8)      # the game: changes every frame
+        x, y = int(rng.integers(300, 800)), int(rng.integers(50, 450))
+        f[y:y + 60, x:x + 90] = 255                                           # something moving in it
+        f[217:327, 10:187] = 200                                              # the webcam overlay: stays put
+        frames.append(f)
+    edge = facecam.persistent_edges(frames, 960)
+    right, moved = [10, 217, 177, 110], [10, 176, 177, 110]                   # same size, 41 px higher
+    assert facecam.box_fit(edge, right) > 0.8
+    assert facecam.box_fit(edge, moved) < 0.6

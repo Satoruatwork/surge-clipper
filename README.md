@@ -46,6 +46,21 @@ Good to know:
 3. **Clips**: review, fix caption words, swap the hook or layout, re-render, then **Approve and schedule**.
    With **Autopilot** on, clips scoring above your bar are scheduled automatically.
 4. **Schedule**: every account's posting slots on a timeline.
+5. **Export**: the folder button on a finished past-broadcast or Already viral row copies its clips, best first,
+   into `Videos\Surge exports\…` with a `captions.txt` (title, caption, hashtags, music credit, source second)
+   for sending to a campaign manager or posting by hand.
+
+### Already viral: re-cut what viewers clipped most
+
+Pick **Already viral** on the Desk, paste a Twitch channel (`twitch.tv/kaicenat`) and choose the last 24 hours,
+7 days or 30 days. Surge reads the channel's most-viewed viewer clips, groups clips of the same moment, ranks the
+moments by total views, reads a little audio around each one to find the real peak, then cuts only those
+sections from the broadcast in full quality and runs them through the normal clip pipeline. Moments Twitch muted
+for music, moments where almost nothing is said, and moments where the game screen is black are skipped and
+replaced from the next ones down. **Run again** tops the row back up to your clip count: clips you kept stay,
+moments already tried are skipped. With an AI writer connected, the viewers' own clip titles help it write the
+hook. The clips come from the streamer's broadcast (the VOD), not from the viewer clips themselves, and the
+broadcast must still be up on Twitch.
 
 ## How it hits 20 to 30 clips in 20 minutes
 

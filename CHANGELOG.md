@@ -2,6 +2,16 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.4.0
+
+- New **Already viral** mode on the Desk: paste a Twitch channel and Surge re-cuts the moments viewers clipped most in the last 24 hours, 7 days or 30 days, in your format, from the original broadcast.
+- Already viral skips moments Twitch muted for music, moments with almost nothing said, and moments where the game screen is black, and fills in from the next moments down. Run again tops the row back up to your clip count.
+- New **Export** button on finished rows: the clips go into a folder in your Videos, best first, with a captions.txt holding each title, caption, hashtags and music credit.
+- Clips no longer open on a black loading screen: the start moves to the first frame of gameplay.
+- The facecam crop keeps up when a streamer moves their cam during a stream, and no longer stops short at a door frame or wall edge in their room. Clips from one source stay framed the same way.
+- Captions no longer repeat a phrase dozens of times when the speech model gets stuck (it could print "oh shit" 21 times in 3 seconds over loud music).
+- The caption profanity mask now catches every form of a swear word or slur ("niggas", "fuckin'", "motherfuckers"), not only the exact base word.
+
 ## 0.3.1
 
 - Updating while Surge is running is now safe. The installer closes Surge and the helper programs it started, checks that Surge.exe can be replaced, and if it can't, stops with a clear message before changing anything. Before, Windows could fail to close the app and the update left a half-updated install.

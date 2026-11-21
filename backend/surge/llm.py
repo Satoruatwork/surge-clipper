@@ -21,7 +21,7 @@ cheats/exploits, or private info. Always reply with ONE JSON object and nothing 
 CLIP_PROMPT = """Streamer: {streamer} ({platform}) · Game: {game}
 Clip window: {duration:.0f}s. Chat reaction type: {chat_class}. Signal strength: {strength}.
 Top chat messages around the peak (message, count): {chat}
-
+{viewer}
 Transcript (seconds from clip start):
 {transcript}
 
@@ -210,6 +210,9 @@ def write_clip(ctx: dict) -> dict:
         game=ctx.get("game") or "GTA 6", duration=ctx.get("duration", 30),
         chat_class=ctx.get("chat_class") or "unknown", strength=ctx.get("strength", "?"),
         chat=json.dumps(ctx.get("chat", [])[:8], ensure_ascii=False),
+        viewer=(f"Viewers already clipped this moment and titled it {json.dumps(ctx['viewer_titles'][:4], ensure_ascii=False)}"
+                f": it's proven. Use their titles to understand what happens, then write a better hook of your own.\n"
+                if ctx.get("viewer_titles") else ""),
         transcript=transcript_lines(ctx.get("words", [])), streamer_tag=tag_of(ctx.get("streamer")),
         peak=float(ctx.get("peak_rel", 0)), budget=ctx.get("fx_budget", 5),
         sound_tags=", ".join(ctx.get("fx_vocab", {}).get("sound_tags", [])),
@@ -278,7 +281,13 @@ def heuristic(ctx: dict) -> dict:
     rnd = random.Random(hash((streamer, ctx.get("peak", 0))))
     hook = rnd.choice(HOOKS.get(cls, HOOKS[None]))
     quote = best.strip().rstrip(".!?,")
-    title = (f"\"{quote[:60]}\" 😭 | {streamer}" if quote else f"{hook} | {streamer} GTA 6")[:95]
+    # an already-viral moment comes with the titles viewers gave it: a descriptive one beats a random quote
+    viewer = next((t for t in ctx.get("viewer_titles") or [] if 3 <= len(re.findall(r"[A-Za-z']+", t)) <= 14), "")
+    viewer = re.sub(r"\s+", " ", viewer).strip()
+    if viewer:
+        title = f"{viewer[0].upper()}{viewer[1:]} | {streamer} GTA 6"[:95]
+    else:
+        title = (f"\"{quote[:60]}\" 😭 | {streamer}" if quote else f"{hook} | {streamer} GTA 6")[:95]
     tags = clean_tags(BASE_TAGS[:9] + [f"#{tag_of(streamer)}"], ctx)
     desc = f"{streamer} {'had chat in tears' if cls == 'funny' else 'had chat going crazy'} on stream. " \
            f"Full stream on {ctx.get('platform') or 'Twitch'}."
