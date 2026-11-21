@@ -1,0 +1,17 @@
+# Surge engine, Python 3.12 on Windows 10/11 x64. Direct dependencies only; the rest resolve from these.
+anthropic==2.12.0
+curl_cffi==0.17.0
+fastapi==0.165.0
+faster-whisper==1.2.1
+google-api-python-client==2.202.0
+google-auth-httplib2==0.4.4
+google-auth-oauthlib==1.5.0
+httpx==0.28.1
+numpy==2.5.5
+opencv-python-headless==5.1.0.95
+pywebview==6.2.1
+python-multipart==0.0.34
+streamlink==8.6.3
+uvicorn[standard]==0.54.0
+websockets==17.4
+yt-dlp==2026.10.26

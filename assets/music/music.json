@@ -1,0 +1,17 @@
+{
+  "license": "Creative Commons Attribution 4.0. Free to use in monetized videos when the credit line is in the description; Surge adds it automatically.",
+  "tracks": [
+    {"file": "Fluffing a Duck.mp3", "title": "Fluffing a Duck", "artist": "Kevin MacLeod", "moods": ["funny", "goofy"]},
+    {"file": "Sneaky Snitch.mp3", "title": "Sneaky Snitch", "artist": "Kevin MacLeod", "moods": ["sneaky", "funny"]},
+    {"file": "Investigations.mp3", "title": "Investigations", "artist": "Kevin MacLeod", "moods": ["sneaky", "tension", "funny"]},
+    {"file": "Scheming Weasel faster.mp3", "title": "Scheming Weasel (faster)", "artist": "Kevin MacLeod", "moods": ["sneaky", "funny", "chase"]},
+    {"file": "Run Amok.mp3", "title": "Run Amok", "artist": "Kevin MacLeod", "moods": ["chase", "funny", "chaos"]},
+    {"file": "Hitman.mp3", "title": "Hitman", "artist": "Kevin MacLeod", "moods": ["tension", "dark", "sneaky"]},
+    {"file": "Volatile Reaction.mp3", "title": "Volatile Reaction", "artist": "Kevin MacLeod", "moods": ["hype", "chase", "action"]},
+    {"file": "Local Forecast - Elevator.mp3", "title": "Local Forecast (Elevator)", "artist": "Kevin MacLeod", "moods": ["awkward", "chill", "funny"]},
+    {"file": "Heartwarming.mp3", "title": "Heartwarming", "artist": "Kevin MacLeod", "moods": ["sad", "wholesome"]},
+    {"file": "Carefree.mp3", "title": "Carefree", "artist": "Kevin MacLeod", "moods": ["chill", "wholesome", "funny"]},
+    {"file": "Merry Go.mp3", "title": "Merry Go", "artist": "Kevin MacLeod", "moods": ["funny", "goofy"]},
+    {"file": "Wallpaper.mp3", "title": "Wallpaper", "artist": "Kevin MacLeod", "moods": ["chill"]}
+  ]
+}

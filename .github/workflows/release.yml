@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            packaging/requirements-build.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: ./packaging/build.ps1 -Version $env:REF_NAME
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: surge-installer
+          path: build/installer/*
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Releases are immutable: create it, or add the installer when the release exists without one. Never overwrite.
+          $setup = Get-Item build/installer/Surge-Setup-*.exe
+          $assets = gh release view $env:REF_NAME --json assets --jq '.assets[].name' 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt --verify-tag --title "Surge $env:REF_NAME" --generate-notes
+          } elseif ($assets -notcontains $setup.Name) {
+            gh release upload $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt
+          } else {
+            Write-Host "Release $env:REF_NAME already has $($setup.Name); leaving it as is."
+          }
