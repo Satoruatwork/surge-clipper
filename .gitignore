@@ -1,6 +1,9 @@
 # Build output
 /build/
 
+# Private working notes (code-signing applications and the like)
+/signing/
+
 # Python
 __pycache__/
 *.py[cod]

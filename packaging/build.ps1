@@ -69,6 +69,7 @@ if (-not $Version -or $Version -notmatch '^v?\d+\.\d+\.\d+') {
     $Version = [regex]::Match((Get-Content "$Root\backend\surge\__init__.py" -Raw), '__version__\s*=\s*"([^"]+)"').Groups[1].Value
 }
 $Version = $Version.TrimStart("v")
+$VersionNumeric = [regex]::Match($Version, '^\d+\.\d+\.\d+').Value + ".0"   # the installer's numeric file version
 Write-Host "Building Surge $Version"
 
 # ---- Python environment
@@ -174,7 +175,7 @@ if (-not $SkipInstaller) {
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if (-not $iscc) { throw "Inno Setup 6 (ISCC.exe) not found. Install it from https://jrsoftware.org/isdl.php" }
-    Run $iscc @("/Q", "/DAppVersion=$Version", "$PSScriptRoot\surge.iss")
+    Run $iscc @("/Q", "/DAppVersion=$Version", "/DAppVersionNumeric=$VersionNumeric", "$PSScriptRoot\surge.iss")
     $setup = Get-Item (Join-Path $Build "installer\Surge-Setup-$Version.exe")
     $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLower()
     "$hash *$($setup.Name)" | Set-Content (Join-Path $setup.DirectoryName "SHA256SUMS.txt") -Encoding ascii

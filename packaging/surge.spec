@@ -6,14 +6,35 @@
 
 packaging/build.ps1 drops ffmpeg.exe, ffprobe.exe and yt-dlp.exe beside them afterwards. tools.py looks for all four
 next to sys.executable, so the engine runs the same from source and installed."""
+import re
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.win32.versioninfo import (FixedFileInfo, StringFileInfo, StringStruct, StringTable,
+                                                 VarFileInfo, VarStruct, VSVersionInfo)
 
 HERE = Path(SPECPATH)
 ROOT = HERE.parent
 ASSETS = ROOT / "assets"
 EXCLUDES = ["tkinter", "pytest", "_pytest", "matplotlib", "IPython"]
+
+sys.path.insert(0, str(ROOT / "backend"))
+from surge import __version__  # noqa: E402
+
+
+def version_info(description: str) -> VSVersionInfo:
+    """Product name and version baked into the exe, identical on every build (code-signing services check them)."""
+    nums = tuple(int(n) for n in re.match(r"(\d+)\.(\d+)\.(\d+)", __version__).groups()) + (0,)
+    dotted = ".".join(map(str, nums))  # the installer carries the same four-part string
+    strings = {"CompanyName": "Surge", "FileDescription": description, "FileVersion": dotted,
+               "InternalName": "Surge", "LegalCopyright": "MIT License", "OriginalFilename": "Surge.exe",
+               "ProductName": "Surge", "ProductVersion": dotted}
+    return VSVersionInfo(
+        ffi=FixedFileInfo(filevers=nums, prodvers=nums, mask=0x3F, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,
+                          date=(0, 0)),
+        kids=[StringFileInfo([StringTable("040904B0", [StringStruct(k, v) for k, v in strings.items()])]),
+              VarFileInfo([VarStruct("Translation", [1033, 1200])])])
 
 
 def gather(*packages):
@@ -61,7 +82,7 @@ streamlink = Analysis([str(HERE / "entry_streamlink.py")], pathex=[str(ROOT / "b
 
 # ------------------------------------------------------------------ one folder
 exe_surge = EXE(PYZ(surge.pure), surge.scripts, [], exclude_binaries=True, name="Surge", console=False, upx=False,
-                icon=str(ASSETS / "surge.ico"))
+                icon=str(ASSETS / "surge.ico"), version=version_info("Surge"))
 exe_streamlink = EXE(PYZ(streamlink.pure), streamlink.scripts, [], exclude_binaries=True, name="streamlink",
                      console=True, upx=False)
 

@@ -216,6 +216,23 @@ The **Release** workflow (`.github/workflows/release.yml`) builds the installer 
 release. Installed copies show it in the update banner on their next check (right away after a restart). The **CI**
 workflow runs the tests and builds the UI on every push and pull request.
 
+## Code signing policy
+
+The Windows installer is **not code-signed yet**, which is why Windows says "unknown publisher". Until it is signed,
+you can check a download yourself:
+
+- Installers from 0.2.0 on are built by GitHub Actions from the tagged commit
+  ([release workflow](.github/workflows/release.yml)); nobody uploads a build from their own PC. (0.1.0 was built on
+  the maintainer's PC.)
+- Compare the installer's SHA-256 with the one on the release page and in `SHA256SUMS.txt`.
+- The source and the build script (`packaging\build.ps1`) are in this repository.
+
+Team roles: authors, reviewers and approvers are [Satoruatwork](https://github.com/Satoruatwork), the sole maintainer.
+
+Privacy policy: see [PRIVACY.md](PRIVACY.md). In short, Surge has no telemetry and no server of its own. It contacts
+only the services listed there: automatically for the update check, the first-start sound pack and the caption models,
+and otherwise only when you ask.
+
 ## Credits and licenses
 
 Surge is MIT licensed (`LICENSE`). The installer bundles FFmpeg (GPL v3), yt-dlp (Unlicense) and Streamlink (BSD),

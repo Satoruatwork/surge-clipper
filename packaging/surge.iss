@@ -6,6 +6,9 @@
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
+#ifndef AppVersionNumeric
+  #define AppVersionNumeric "0.1.0.0"
+#endif
 #define AppName "Surge"
 #define AppExe "Surge.exe"
 
@@ -15,6 +18,12 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=Surge
+VersionInfoVersion={#AppVersionNumeric}
+VersionInfoProductVersion={#AppVersionNumeric}
+VersionInfoProductName={#AppName}
+VersionInfoDescription={#AppName} Setup
+VersionInfoCompany=Surge
+VersionInfoCopyright=MIT License
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
