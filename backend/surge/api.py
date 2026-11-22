@@ -808,8 +808,9 @@ def accounts():
         a["posts"] = {r["status"]: r["n"] for r in db.all(
             "SELECT status, COUNT(*) n FROM posts WHERE account_id=? GROUP BY status", (a["id"],))}
         a["views"] = db.scalar("SELECT COALESCE(SUM(views),0) FROM posts WHERE account_id=?", (a["id"],))
-        a["today"] = db.scalar("SELECT COUNT(*) FROM posts WHERE account_id=? AND scheduled_at>? AND "
-                               "status NOT IN ('failed','cancelled')", (a["id"], day))
+        d_start, d_end = distribute.day_bounds(a, time.time())
+        a["today"] = db.scalar("SELECT COUNT(*) FROM posts WHERE account_id=? AND scheduled_at>=? AND scheduled_at<? "
+                               "AND status NOT IN ('failed','cancelled')", (a["id"], d_start, d_end))
         nxt = db.scalar("SELECT MIN(scheduled_at) FROM posts WHERE account_id=? AND status IN ('queued','scheduled') "
                         "AND scheduled_at>?", (a["id"], time.time()))
         a["next_post"] = nxt

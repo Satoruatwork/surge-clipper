@@ -115,6 +115,8 @@ broadcast must still be up on Twitch.
   address. Publish the Google consent screen to production, or Google signs channels out every 7 days.
 - **Accounts**: health per account (sign-in state, failures today, next post), check or reconnect, groups with shared
   posting times, tags and caps, bulk pause/resume/cap/group, and warm-up (1 post a day, one more each week).
+  Posting is either set times (one post each) or **Spread through the day**: the day's posts spaced evenly between
+  two hours (all day by default), so 30 a day goes out about every 48 minutes.
 - **Campaign sites** (Campaigns, Sites): up to 12 boards and agencies. Sign in on each in a Surge window (you type
   your own password on the site; the sign-in is kept), join campaigns and link accounts there, then tick the linked
   accounts in Surge. Surge does not automate these sites: their terms forbid it and it gets payout accounts banned.

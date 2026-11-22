@@ -9,6 +9,53 @@ import { Avatar, ChipsInput, Modal, Seg, Toggle, confirmDanger } from '../compon
 const YT_TARGET = 15
 const IG_TARGET = 25
 const timeOk = (s: string) => (/^\d{1,2}:\d{2}$/.test(s.trim()) ? s.trim().padStart(5, '0') : '')
+const DEFAULT_TIMES = ['10:00', '13:00', '16:00', '19:00', '22:00']
+const ALL_DAY = '00:00-00:00'
+const isSpan = (w: string) => w.includes('-')
+const minutesOf = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m }
+const spanLength = (from: string, to: string) => { const a = minutesOf(from), b = minutesOf(to); return b > a ? b - a : b + 1440 - a }
+const every = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h${Math.round(m % 60) ? ` ${Math.round(m % 60)} min` : ''}` : `${Math.max(1, Math.round(m))} min`)
+
+/** Set times post once each; "spread through the day" stores one span ("08:00-23:30", "00:00-00:00" for all day)
+ * and the engine spaces the day's posts evenly through it. */
+function PostingTimes({ id, windows, cap, onChange }: { id: string; windows: string[]; cap: number; onChange: (w: string[]) => void }) {
+  const span = windows.find(isSpan)
+  const times = windows.filter((w) => !isSpan(w))
+  const [lastTimes, setLastTimes] = useState(times.length ? times : DEFAULT_TIMES)
+  const [from, to] = (span ?? ALL_DAY).split('-')
+  const setSpan = (f: string, t: string) => { if (f && t && `${f}-${t}` !== span) onChange([`${f}-${t}`]) }
+  const length = spanLength(from, to)
+  return (
+    <div className="field when">
+      <span className="label">When to post</span>
+      <Seg label="When to post" value={span ? 'spread' : 'times'}
+        onChange={(v) => { if (v === 'spread') { if (times.length) setLastTimes(times); onChange([ALL_DAY]) } else onChange(lastTimes) }}
+        options={[{ value: 'spread', label: 'Spread through the day' }, { value: 'times', label: 'Set times' }]} />
+      {span ? (
+        <>
+          <div className="when-span">
+            <label htmlFor={`${id}-from`}>From</label>
+            <input id={`${id}-from`} key={`f${from}`} className="input num" type="time" defaultValue={from} onBlur={(e) => setSpan(e.target.value, to)} />
+            <label htmlFor={`${id}-to`}>to</label>
+            <input id={`${id}-to`} key={`t${to}`} className="input num" type="time" defaultValue={to === '24:00' ? '00:00' : to} onBlur={(e) => setSpan(from, e.target.value)} />
+          </div>
+          <span className="hint">
+            {length >= 1440 ? 'All day' : `${from} to ${to}`}: {cap} post{cap === 1 ? '' : 's'}, about one every {every(length / Math.max(1, cap))}, each a few minutes off the exact time.
+          </span>
+        </>
+      ) : (
+        <>
+          <ChipsInput values={times} placeholder="19:00" normalize={timeOk} onChange={(v) => { setLastTimes(v); onChange(v) }} />
+          {cap > times.length && (
+            <span className="hint">
+              {times.length ? `${times.length} time${times.length === 1 ? '' : 's'} means at most ${times.length} post${times.length === 1 ? '' : 's'} a day.` : 'Add a time.'} Spread through the day posts all {cap}.
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
 
 function health(a: Account): { dot: string; text: string } {
   if (!a.active) return { dot: '', text: 'Paused' }
@@ -84,20 +131,17 @@ function AccountRow({ a, groups, selected, onSelect, onReconnect }: {
       {a.error && a.status === 'error' && <div className="err">{a.error}</div>}
       {open && (
         <div className="acct2-more">
-          <div className="field">
-            <span className="label">Posting times</span>
-            <ChipsInput values={windows} placeholder="19:00" normalize={timeOk} onChange={(v) => { setWindows(v); void save({ windows: v }) }} />
-          </div>
-          <div className="field">
+          <PostingTimes id={`w-${a.id}`} windows={windows} cap={a.daily_cap} onChange={(v) => { setWindows(v); void save({ windows: v }) }} />
+          <div className="field tags">
             <span className="label">Niche tags</span>
             <ChipsInput values={tags} placeholder="streamer or game, * for any" normalize={(s) => s.trim().toLowerCase()} onChange={(v) => { setTags(v); void save({ tags: v }) }} />
           </div>
-          <div className="field">
+          <div className="field cap">
             <label htmlFor={`cap-${a.id}`}>Posts a day</label>
             <input id={`cap-${a.id}`} className="input num" type="number" min={1} max={50} defaultValue={a.daily_cap}
               onBlur={(e) => Number(e.target.value) !== a.daily_cap && save({ daily_cap: Number(e.target.value) })} />
           </div>
-          <div className="field">
+          <div className="field grp">
             <label htmlFor={`grp-${a.id}`}>Group</label>
             <select id={`grp-${a.id}`} className="select" value={a.group_id ?? ''} onChange={(e) => save({ group_id: e.target.value ? Number(e.target.value) : null })}>
               <option value="">No group</option>
@@ -108,6 +152,12 @@ function AccountRow({ a, groups, selected, onSelect, onReconnect }: {
             <span className="label">New account</span>
             <Toggle checked={!!a.warmup} onChange={(v) => save({ warmup: v ? 1 : 0 })} label="Warm up: 1 post a day, one more each week" />
           </div>
+          {a.warmup && a.cap_now < a.daily_cap ? (
+            <p className="warm-note">
+              Warm-up holds this account at {a.cap_now} post{a.cap_now === 1 ? '' : 's'} a day for now and adds one a week, so {a.daily_cap} a day is {a.daily_cap - a.cap_now} week{a.daily_cap - a.cap_now === 1 ? '' : 's'} away.{' '}
+              <button className="link-btn" onClick={() => save({ warmup: 0 })}>Turn warm-up off</button>
+            </p>
+          ) : null}
         </div>
       )}
     </div>
@@ -151,7 +201,7 @@ function GroupRow({ g }: { g: Group }) {
         <button className="btn ghost icon sm" aria-label={`Delete ${g.name}`} onClick={async () => { if (confirmDanger(`Delete the group ${g.name}? Its accounts stay connected.`)) { await api.del(`/api/groups/${g.id}`); void load.groups(); void load.accounts() } }}><Trash2 size={14} /></button>
       </header>
       <div className="grid2">
-        <div className="field"><span className="label">Posting times</span><ChipsInput values={windows} normalize={timeOk} placeholder="19:00" onChange={(v) => { setWindows(v); void patch({ windows: v }) }} /></div>
+        <PostingTimes id={`gw-${g.id}`} windows={windows} cap={g.daily_cap} onChange={(v) => { setWindows(v); void patch({ windows: v }) }} />
         <div className="field"><span className="label">Niche tags</span><ChipsInput values={tags} normalize={(s) => s.trim().toLowerCase()} placeholder="kaicenat" onChange={(v) => { setTags(v); void patch({ tags: v }) }} /></div>
       </div>
       <div className="field" style={{ maxWidth: 160, marginTop: 10 }}>
@@ -298,6 +348,8 @@ export function Accounts({ goSetup }: { goSetup: () => void }) {
           <button className="btn sm" onClick={() => bulk({ active: 0 }, 'Paused')}>Pause</button>
           <button className="btn sm" onClick={() => bulk({ active: 1 }, 'Resumed')}>Resume</button>
           <button className="btn sm" onClick={() => bulk({ warmup: 1 }, 'Warm-up on')}>Warm up</button>
+          <button className="btn sm" onClick={() => bulk({ warmup: 0 }, 'Warm-up off')}>Warm-up off</button>
+          <button className="btn sm" onClick={() => bulk({ windows: [ALL_DAY] }, 'Spread through the day')}>Spread through the day</button>
           <span className="inline-form">
             <input className="input num" type="number" min={1} max={50} value={bulkCap} onChange={(e) => setBulkCap(Number(e.target.value))} aria-label="Posts a day" style={{ width: 64 }} />
             <button className="btn sm" onClick={() => bulk({ daily_cap: bulkCap }, `Set ${bulkCap} a day`)}>Set posts a day</button>

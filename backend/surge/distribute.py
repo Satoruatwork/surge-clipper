@@ -1,5 +1,6 @@
 """Autopilot distribution: assign approved clips to accounts, give each account its own copy angle, slot posts
-into each account's posting windows, upload/publish on time, refresh tokens and view counts."""
+into each account's posting times or spread them through its posting hours, upload/publish on time, refresh tokens
+and view counts."""
 from __future__ import annotations
 
 import random
@@ -79,28 +80,80 @@ def _day_posts(account_id: int, day_start: float) -> list[float]:
     return [r["scheduled_at"] for r in rows]
 
 
-def next_slot(account: dict, after: float) -> float:
-    windows = account.get("windows") or ["10:00", "13:00", "16:00", "19:00", "22:00"]
-    cap = growth.effective_cap(account)
-    gap = float(config.get("min_gap_minutes") or 60) * 60
-    jitter = float(config.get("slot_jitter_minutes") or 0) * 60
-    rnd = random.Random(int(after) ^ account["id"])
-    base = datetime.fromtimestamp(after).replace(hour=0, minute=0, second=0, microsecond=0)
-    for day in range(0, 30):
-        d0 = base + timedelta(days=day)
-        taken = _day_posts(account["id"], d0.timestamp())
-        on_day = [t for t in taken if d0.timestamp() <= t < d0.timestamp() + 86400]
-        if len(on_day) >= cap:
+DEFAULT_WINDOWS = ["10:00", "13:00", "16:00", "19:00", "22:00"]
+
+
+def _clock(s: str) -> int | None:
+    """'19:30' as minutes after midnight; '24:00' is the end of the day."""
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", s or "")
+    if not m or int(m[2]) > 59 or int(m[1]) * 60 + int(m[2]) > 1440:
+        return None
+    return int(m[1]) * 60 + int(m[2])
+
+
+def day_plan(windows: list | None, cap: int, gap: float, jitter: float) -> dict:
+    """One posting day in minutes after the midnight it starts from. Exact times ("19:00") post once each; the rest
+    of the day's cap spreads evenly through spans ("08:00-23:30", "00:00-00:00" for all day; a span that ends before
+    it starts runs past midnight). The day starts at the earliest span, so a night span stays one posting day.
+    Spread posts keep half their spacing apart, so the cap fits the day instead of the global minimum gap."""
+    times, spans = [], []
+    for w in windows or []:
+        a, sep, b = str(w).partition("-")
+        start, end = _clock(a), _clock(b) if sep else None
+        if start is None or start >= 1440:
             continue
-        for w in sorted(windows):
-            try:
-                hh, mm = (int(x) for x in w.split(":"))
-            except ValueError:
-                continue
-            t = (d0 + timedelta(hours=hh, minutes=mm)).timestamp() + rnd.uniform(-jitter, jitter)
-            if t < after:
-                continue
-            if all(abs(t - o) >= gap for o in taken):
+        if not sep:
+            times.append(start)
+        elif end is not None:
+            spans.append((start, end if end > start else end + 1440))
+    if not times and not spans:
+        times = [_clock(w) for w in DEFAULT_WINDOWS]
+    day_start = min(a for a, _ in spans) if spans else 0
+    slots = sorted({t if t >= day_start else t + 1440 for t in times})
+    spans = sorted((a, min(b, day_start + 1440)) for a, b in spans)
+    spread, length = max(0, cap - len(slots)), sum(b - a for a, b in spans)
+    if spread and length > 0:
+        step = length / spread
+        gap, jitter = min(gap, step / 2), min(jitter, step / 4)
+        for k in range(spread):  # centred in equal shares of the spans, laid end to end
+            pos = (k + 0.5) * step
+            for a, b in spans:
+                if pos < b - a:
+                    slots.append(a + pos)
+                    break
+                pos -= b - a
+        slots.sort()
+    return {"start": day_start, "slots": slots, "gap": gap, "jitter": jitter}
+
+
+def day_bounds(account: dict, at: float) -> tuple[float, float]:
+    """The posting day `at` falls in, as [start, end) timestamps."""
+    start = day_plan(account.get("windows"), 0, 0, 0)["start"]
+    d0 = datetime.fromtimestamp(at).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=start)
+    if d0.timestamp() > at:
+        d0 -= timedelta(days=1)
+    return d0.timestamp(), (d0 + timedelta(days=1)).timestamp()
+
+
+def next_slot(account: dict, after: float) -> float:
+    cap = growth.effective_cap(account)
+    plan = day_plan(account.get("windows"), cap, float(config.get("min_gap_minutes") or 60),
+                    float(config.get("slot_jitter_minutes") or 0))
+    gap, jitter = plan["gap"] * 60, plan["jitter"] * 60
+    rnd = random.Random(int(after) ^ account["id"])
+    midnight = datetime.fromtimestamp(after).replace(hour=0, minute=0, second=0, microsecond=0)
+    for day in range(-1, 30):  # from yesterday: a span past midnight still belongs to the day it started
+        d0 = midnight + timedelta(days=day)
+        start = (d0 + timedelta(minutes=plan["start"])).timestamp()
+        end = (d0 + timedelta(days=1, minutes=plan["start"])).timestamp()
+        if end <= after:
+            continue
+        taken = _day_posts(account["id"], start)
+        if sum(start <= t < end for t in taken) >= cap:
+            continue
+        for m in plan["slots"]:
+            t = (d0 + timedelta(minutes=m)).timestamp() + rnd.uniform(-jitter, jitter)
+            if t >= after and all(abs(t - o) >= gap for o in taken):
                 return t
     return after + 86400
 

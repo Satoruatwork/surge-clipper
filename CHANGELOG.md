@@ -2,6 +2,12 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.4.1
+
+- **Posts a day** now goes as high as you set it. Pick **Spread through the day** on an account or a group, or for several accounts at once, and Surge spaces that many posts evenly between the hours you choose (all day by default), each a few minutes off the exact time: 30 a day is one about every 48 minutes. Set times still post once each, and the account now tells you when it has fewer times than posts a day.
+- When warm-up holds an account below its posts a day, the account says so, shows how many weeks the ramp takes, and offers to turn warm-up off. Several accounts can switch it off at once.
+- The "today" count on Accounts and Schedule counts only today's posts. It used to include every post queued for the coming days.
+
 ## 0.4.0
 
 - New **Already viral** mode on the Desk: paste a Twitch channel and Surge re-cuts the moments viewers clipped most in the last 24 hours, 7 days or 30 days, in your format, from the original broadcast.

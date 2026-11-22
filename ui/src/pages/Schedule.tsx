@@ -117,7 +117,7 @@ export function Schedule() {
                   <Avatar src={a.avatar} name={a.name} platform={a.platform} />
                   <div>
                     <b>{a.name}</b>
-                    <span>{a.today}/{a.daily_cap} today</span>
+                    <span>{a.today}/{a.cap_now} today</span>
                   </div>
                 </div>
                 <div className="track">

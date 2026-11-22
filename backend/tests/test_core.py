@@ -83,6 +83,36 @@ def test_next_slot_windows_cap_and_gap(monkeypatch):
     assert datetime.fromtimestamp(t3).date() > datetime.fromtimestamp(t1).date()
 
 
+def test_spread_fills_the_day_evenly(monkeypatch):
+    taken: list[float] = []
+    monkeypatch.setattr(distribute, "_day_posts", lambda _aid, _d0: list(taken))
+    monkeypatch.setattr(distribute.config, "get", lambda k: {"min_gap_minutes": 75, "slot_jitter_minutes": 8}.get(k))
+    acc = {"id": 7, "windows": ["00:00-00:00"], "daily_cap": 30}
+    day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    for _ in range(31):
+        taken.append(distribute.next_slot(acc, day.timestamp()))
+    first = sorted(t for t in taken if t < (day + timedelta(days=1)).timestamp())
+    assert len(first) == 30  # the cap sets the pace, not the 75 min gap meant for set times
+    gaps = [(b - a) / 60 for a, b in zip(first, first[1:])]
+    assert 32 <= min(gaps) and max(gaps) <= 64  # one about every 48 min, each shifted up to 8 min
+    assert datetime.fromtimestamp(taken[-1]).date() == (day + timedelta(days=1)).date()
+
+
+def test_night_span_is_one_posting_day(monkeypatch):
+    taken: list[float] = []
+    monkeypatch.setattr(distribute, "_day_posts", lambda _aid, _d0: list(taken))
+    monkeypatch.setattr(distribute.config, "get", lambda k: {"min_gap_minutes": 60, "slot_jitter_minutes": 0}.get(k))
+    acc = {"id": 3, "windows": ["20:00-04:00"], "daily_cap": 4}
+    noon = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    for _ in range(5):
+        taken.append(distribute.next_slot(acc, noon.timestamp()))
+    at = [datetime.fromtimestamp(t) for t in taken]
+    assert [d.strftime("%H:%M") for d in at] == ["21:00", "23:00", "01:00", "03:00", "21:00"]
+    assert at[4].date() == at[0].date() + timedelta(days=1)  # 4 a night: the fifth waits for the next night
+    start, end = distribute.day_bounds(acc, taken[2])  # 01:00 counts toward the night it started
+    assert start <= taken[0] < end and start <= taken[3] < end
+
+
 def test_parse_source():
     assert chat.parse_source("https://www.twitch.tv/timthetatman") == \
         {"platform": "twitch", "channel": "timthetatman", "video": None, "kind_hint": "live"}

@@ -188,7 +188,7 @@ export function Settings() {
             <div className="grid2">
               <Field label="Score needed for autopilot" htmlFor="aas"><Range id="aas" value={num('auto_approve_score')} min={5} max={10} step={0.5} onChange={set('auto_approve_score')} /></Field>
               <Field label="Accounts per clip" hint="Each gets its own title and hashtag mix" htmlFor="mapc"><Range id="mapc" value={num('max_accounts_per_clip')} min={1} max={10} onChange={set('max_accounts_per_clip')} /></Field>
-              <Field label="Minimum gap between posts on one account" htmlFor="gap"><Range id="gap" value={num('min_gap_minutes')} min={15} max={360} step={5} onChange={set('min_gap_minutes')} suffix="m" /></Field>
+              <Field label="Minimum gap between posts on one account" hint="For set posting times. Spread through the day spaces posts to fit the day's count" htmlFor="gap"><Range id="gap" value={num('min_gap_minutes')} min={15} max={360} step={5} onChange={set('min_gap_minutes')} suffix="m" /></Field>
               <Field label="Shift each slot by up to" hint="Posts don't all land on the exact minute" htmlFor="jit"><Range id="jit" value={num('slot_jitter_minutes')} min={0} max={30} onChange={set('slot_jitter_minutes')} suffix="m" /></Field>
             </div>
             <Field label="Hashtags every post must carry" hint="From your clipping campaign rules, separated by spaces" htmlFor="ch"><input id="ch" className="input" value={str('campaign_hashtags')} onChange={(e) => set('campaign_hashtags')(e.target.value)} placeholder="#gta6 #clipcampaign" /></Field>
