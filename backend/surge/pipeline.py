@@ -208,7 +208,7 @@ def black_until(raw: Path, a: float, limit: float, step: float = 0.5) -> float:
     if limit <= a:
         return a
     w, h = 64, 36
-    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-ss", f"{a:.2f}", "-i", str(raw),
+    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", *tools.KEEP_HOLES, "-ss", f"{a:.2f}", "-i", str(raw),
                    "-t", f"{limit - a:.2f}", "-an", "-vf",
                    f"fps={1 / step:g},crop=iw/2:ih*2/3:iw/4:ih/6,scale={w}:{h},format=gray",
                    "-f", "rawvideo", "-"], timeout=120, check=False)
@@ -218,6 +218,29 @@ def black_until(raw: Path, a: float, limit: float, step: float = 0.5) -> float:
         return a  # can't tell: leave the cut alone
     lit = np.nonzero(pix[:n * w * h].reshape(n, w * h).mean(axis=1) > 16)[0]
     return a + float(lit[0]) * step if len(lit) else limit
+
+
+def off_holes(holes: list[tuple[float, float]], start: float, end: float, peak: float, min_len: float,
+              total: float, grow: bool = True) -> tuple[float, float] | None:
+    """Keep the clip off stretches where the stream dropped out (a frozen picture over silence): start after a hole
+    or end before it, on whichever side the moment is, then win back length on the other side without crossing
+    another hole. None when the moment itself fell into a hole or what is left is too short."""
+    for h0, h1 in sorted(holes):
+        if h1 <= start or h0 >= end:
+            continue
+        if h0 - 0.5 <= peak <= h1 + 0.5:
+            return None
+        if peak > h1:
+            start = h1 + 0.1
+        else:
+            end = h0 - 0.1
+    if grow and end - start < min_len:
+        lo = max([0.0] + [h1 + 0.1 for _h0, h1 in holes if h1 <= start + 0.2])
+        hi = min([total] + [h0 - 0.1 for h0, _h1 in holes if h0 >= end - 0.2])
+        need = min_len - (end - start)
+        back = max(0.0, min(need, start - lo))
+        start, end = start - back, min(hi, end + need - back)
+    return (start, end) if end - start >= min_len * 0.75 else None
 
 
 def viral_gate(clip: dict, env, words: list[dict], start: float, end: float) -> str | None:
@@ -271,7 +294,12 @@ def _run(clip_id: int, make_raw: RawMaker) -> None:
             settled_at = None
         start, end = refine(words, peak, float(s["pre_roll"]), float(s["post_roll"]),
                             float(s["clip_min"]), float(s["clip_max"]), total, settled_at)
-        problem = viral_gate(clip, env, words, start, end)
+        holes = tools.holes(raw)
+        window = off_holes(holes, start, end, peak, float(s["clip_min"]), total)
+        problem = viral_gate(clip, env, words, start, end) if window else \
+            "the stream dropped out during this moment"
+        if window:
+            start, end = window
         if problem:
             release((clip.get("signals") or {}).get("session"), clip_id)
             set_status(clip_id, "rejected", error=problem)
@@ -319,6 +347,13 @@ def _run(clip_id: int, make_raw: RawMaker) -> None:
                 bus.note(f"Clip #{clip_id} skipped: same moment as clip #{got}", source_id=source.get("id"))
                 return
             start, end = got[0] - raw_start, got[1] - raw_start
+        window = off_holes(holes, start, end, peak, float(s["clip_min"]), total, grow=False)  # trims moved it
+        if window is None:
+            release(session, clip_id)
+            set_status(clip_id, "rejected", error="the stream dropped out during this moment")
+            bus.note(f"Clip #{clip_id} skipped: the stream dropped out during this moment", source_id=source.get("id"))
+            return
+        start, end = window
         rel = [{**w, "s": round(w["s"] - start, 3), "e": round(w["e"] - start, 3)}
                for w in words if start - 0.05 <= w["s"] and w["e"] <= end + 0.3]
 

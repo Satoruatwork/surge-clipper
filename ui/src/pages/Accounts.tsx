@@ -57,9 +57,12 @@ function PostingTimes({ id, windows, cap, onChange }: { id: string; windows: str
   )
 }
 
+const held = (a: Account) => !!a.hold_until && a.hold_until * 1000 > Date.now()
+
 function health(a: Account): { dot: string; text: string } {
   if (!a.active) return { dot: '', text: 'Paused' }
   if (a.status === 'error') return { dot: 'live', text: a.error?.includes('Reconnect') ? 'Sign-in expired' : 'Needs attention' }
+  if (held(a)) return { dot: 'warn', text: `Upload limit reached, waits until ${dayClock(a.hold_until as number)}` }
   if (a.token_days !== null && a.token_days < 10) return { dot: 'warn', text: `Sign-in renews in ${Math.max(0, Math.round(a.token_days))} d` }
   if (a.failed_24h) return { dot: 'warn', text: `${a.failed_24h} failed today` }
   return { dot: 'on', text: a.last_check ? `Healthy, checked ${ago(a.last_check)}` : 'Connected' }
@@ -138,7 +141,7 @@ function AccountRow({ a, groups, selected, onSelect, onReconnect }: {
           </div>
           <div className="field cap">
             <label htmlFor={`cap-${a.id}`}>Posts a day</label>
-            <input id={`cap-${a.id}`} className="input num" type="number" min={1} max={50} defaultValue={a.daily_cap}
+            <input id={`cap-${a.id}`} className="input num" type="number" min={1} max={500} defaultValue={a.daily_cap}
               onBlur={(e) => Number(e.target.value) !== a.daily_cap && save({ daily_cap: Number(e.target.value) })} />
           </div>
           <div className="field grp">
@@ -152,6 +155,18 @@ function AccountRow({ a, groups, selected, onSelect, onReconnect }: {
             <span className="label">New account</span>
             <Toggle checked={!!a.warmup} onChange={(v) => save({ warmup: v ? 1 : 0 })} label="Warm up: 1 post a day, one more each week" />
           </div>
+          {held(a) && (
+            <p className="warm-note">
+              {a.hold_reason} Surge waits until {dayClock(a.hold_until as number)} and moved this account's waiting posts to new slots after that, so nothing fails.{' '}
+              <button className="link-btn" onClick={() => save({ hold_until: null })}>Try now</button>
+            </p>
+          )}
+          {a.day_limit && a.day_limit < a.daily_cap ? (
+            <p className="warm-note">
+              YouTube lets this channel upload about {a.day_limit} videos a day (it refused more), so Surge plans {a.day_limit} a day here instead of {a.daily_cap}. A channel verified with a phone number gets a higher limit.{' '}
+              <button className="link-btn" onClick={() => save({ day_limit: null })}>Forget this limit</button>
+            </p>
+          ) : null}
           {a.warmup && a.cap_now < a.daily_cap ? (
             <p className="warm-note">
               Warm-up holds this account at {a.cap_now} post{a.cap_now === 1 ? '' : 's'} a day for now and adds one a week, so {a.daily_cap} a day is {a.daily_cap - a.cap_now} week{a.daily_cap - a.cap_now === 1 ? '' : 's'} away.{' '}
@@ -268,6 +283,8 @@ export function Accounts({ goSetup }: { goSetup: () => void }) {
   const accounts = useStore((s) => s.accounts)
   const groups = useStore((s) => s.groups)
   const hasSecret = useStore((s) => s.hasGoogleSecret)
+  const allowance = Number(useStore((s) => s.settings?.yt_daily_uploads) ?? 100) || 100
+  const ytPlanned = accounts.filter((a) => a.platform === 'youtube' && a.active).reduce((n, a) => n + a.cap_now, 0)
   const [ig, setIg] = useState(false)
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [filter, setFilter] = useState<string>('all')
@@ -332,6 +349,13 @@ export function Accounts({ goSetup }: { goSetup: () => void }) {
           <button className="btn ghost" onClick={() => api.post('/api/accounts/refresh').then(() => toast('Refreshing views and followers'))}><RefreshCw size={15} />Refresh stats</button>
         </div>
       </div>
+
+      {ytPlanned > allowance && (
+        <p className="page-note">
+          Your YouTube channels are set to {ytPlanned} posts a day in total, but your Google project uploads about {allowance} a day for all of them.
+          Surge fills each day up to {allowance} and moves the rest to the next days. If Google raised your project's limit, change the allowance in Setup.
+        </p>
+      )}
 
       <div className="toolbar">
         <Seg label="Show" value={filter} onChange={setFilter} options={[

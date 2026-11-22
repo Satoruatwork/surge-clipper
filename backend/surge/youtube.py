@@ -3,8 +3,9 @@ stats. YouTube owns the schedule once uploaded, so scheduled Shorts go out even 
 from __future__ import annotations
 
 import json
+import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -133,3 +134,53 @@ def refresh_channel(account: dict) -> None:
 
 def now() -> float:
     return time.time()
+
+
+# ---------------------------------------------------------------- daily upload limits
+
+# YouTube refuses uploads in two ways once a daily limit is used up: the Google project's "Video Uploads per day"
+# quota (shared by every channel the project serves) and the channel's own cap on uploads.
+PROJECT_FULL = re.compile(r"quota ?exceeded|Video Uploads per day", re.I)
+CHANNEL_FULL = re.compile(r"uploadLimitExceeded|exceeded the number of videos", re.I)
+
+
+def limit_hit(error: str) -> str | None:
+    """'channel' or 'project' when an upload was refused because a daily upload limit is used up, else None."""
+    if CHANNEL_FULL.search(error or ""):
+        return "channel"
+    if PROJECT_FULL.search(error or ""):
+        return "project"
+    return None
+
+
+def quota_day_start(at: float | None = None) -> float:
+    """When YouTube's quota day began: midnight Pacific (PST = UTC-8, PDT = UTC-7)."""
+    now = datetime.fromtimestamp(time.time() if at is None else at, timezone.utc)
+    y = now.year
+    # US DST: second Sunday of March 10:00 UTC to first Sunday of November 09:00 UTC (approximation is fine here)
+    mar = datetime(y, 3, 8 + (6 - datetime(y, 3, 8).weekday()) % 7, 10, tzinfo=timezone.utc)
+    nov = datetime(y, 11, 1 + (6 - datetime(y, 11, 1).weekday()) % 7, 9, tzinfo=timezone.utc)
+    offset = timedelta(hours=-7 if mar <= now < nov else -8)
+    midnight = (now + offset).replace(hour=0, minute=0, second=0, microsecond=0) - offset
+    return midnight.timestamp()
+
+
+def quota_reset(at: float | None = None) -> float:
+    return quota_day_start(at) + 86400
+
+
+def _uploaded_at() -> str:
+    return "COALESCE(p.uploaded_at, p.created_at)"  # posts uploaded before uploaded_at existed: close enough
+
+
+def uploads_today() -> int:
+    """Uploads your Google project made since the quota day began (one project serves every channel)."""
+    return db.scalar("SELECT COUNT(*) FROM posts p JOIN accounts a ON a.id=p.account_id WHERE a.platform='youtube' "
+                     f"AND p.external_id IS NOT NULL AND {_uploaded_at()} >= ?", (quota_day_start(),)) or 0
+
+
+def channel_uploads(account_id: int, since: float) -> list[float]:
+    """When this channel's uploads since `since` happened, oldest first."""
+    rows = db.all(f"SELECT {_uploaded_at()} t FROM posts p WHERE p.account_id=? AND p.external_id IS NOT NULL "
+                  f"AND {_uploaded_at()} >= ? ORDER BY t", (account_id, since))
+    return [float(r["t"]) for r in rows]

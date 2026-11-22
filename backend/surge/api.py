@@ -911,7 +911,11 @@ def ig_code(body: Code):
 def patch_account(aid: int, body: dict):
     db.get("accounts", aid) or _404()
     allowed = {k: v for k, v in body.items() if k in ("tags", "windows", "daily_cap", "active", "name", "group_id",
-                                                       "warmup")}
+                                                       "warmup", "hold_until", "day_limit")}
+    if "hold_until" in allowed:  # only ever cleared from the app ("Try now"); YouTube's refusals set it
+        allowed.update(hold_until=None, hold_reason=None)
+    if "day_limit" in allowed:  # "Forget": learn the channel's cap again from YouTube
+        allowed["day_limit"] = None
     if allowed.get("warmup") and not (db.get("accounts", aid) or {}).get("warmup"):
         allowed["warmup_started"] = time.time()
     if "active" in allowed:

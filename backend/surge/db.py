@@ -149,8 +149,10 @@ JSON_FIELDS = {"settings", "stats", "signals", "chat", "words", "hashtags", "var
 EXTRA_COLUMNS = {
     "clips": {"fx_json": "TEXT DEFAULT '{}'"},
     "accounts": {"group_id": "INTEGER", "warmup": "INTEGER DEFAULT 0", "warmup_started": "REAL",
-                 "last_check": "REAL", "last_ok": "REAL", "last_post_at": "REAL"},
-    "posts": {"campaign_id": "INTEGER", "submit_status": "TEXT", "submitted_at": "REAL"},
+                 "last_check": "REAL", "last_ok": "REAL", "last_post_at": "REAL",
+                 # uploads paused (YouTube's daily limits) until hold_until; day_limit: what YouTube allows a day
+                 "hold_until": "REAL", "hold_reason": "TEXT", "day_limit": "INTEGER"},
+    "posts": {"campaign_id": "INTEGER", "submit_status": "TEXT", "submitted_at": "REAL", "uploaded_at": "REAL"},
     "campaigns": {"site_id": "INTEGER", "campaign_url": "TEXT", "submit_url": "TEXT",
                   "submit_mode": "TEXT DEFAULT 'link'", "code": "TEXT", "dedicated": "INTEGER DEFAULT 1"},
 }

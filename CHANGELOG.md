@@ -2,6 +2,13 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.4.3
+
+- Posting no longer fails when YouTube's daily upload limits are used up. Surge counts your Google project's uploads against the allowance in Setup and learns each channel's own daily cap from YouTube's refusals. When a limit is reached, uploads wait (until YouTube's quota day turns, or until the channel's oldest upload is a day old) and the waiting posts move to new slots after it instead of failing. Shorts upload at most a day before their slot, so today's limit goes to today's posts, and the schedule never plans a day with more posts than your project can upload. Posts that failed on a limit in the last three days come back in line by themselves.
+- Voice and captions no longer slip out of step after a live stream drops out for a few seconds (lag or an ad break). Surge keeps every dropout as real time wherever it reads audio, so sound stays on the picture, and a clip starts after or ends before a dropout instead of freezing over it.
+- The facecam box under Framing resizes from every edge and corner, in any shape (arrow keys move it, Shift with arrows resizes it), and the facecam band of a split clip takes the box's shape, so it shows exactly what you framed.
+- Settings has a save bar that stays at the bottom of the page: it shows how many changes are unsaved and saves with Ctrl+S. Unsaved changes survive switching pages, and the sidebar marks Settings until you save.
+
 ## 0.4.2
 
 - Connect **Google Gemini**, **OpenCode Go** or **OpenCode Zen** with just a key: press Connect and Surge tests the best models your key can use with a real clip prompt, then keeps the first that answers properly for clips and for ranking. A free Gemini key gets Gemini Flash at no cost.

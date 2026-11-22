@@ -116,9 +116,9 @@ def reaction_class(titles: list[str]) -> str | None:
 
 
 def _pcm(urls: list[str], headers: dict, a: float, dur: float) -> np.ndarray:
-    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", *vod._hdr_args(headers), "-ss", f"{a:.2f}",
-                   "-i", urls[0], "-t", f"{dur:.2f}", "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
-                  timeout=300)
+    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", *tools.KEEP_HOLES, *vod._hdr_args(headers),
+                   "-ss", f"{a:.2f}", "-i", urls[0], "-t", f"{dur:.2f}", "-vn", "-af", tools.keep_timing(),
+                   "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], timeout=300)
     return np.frombuffer(p.stdout, np.int16)
 
 

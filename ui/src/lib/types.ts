@@ -113,6 +113,11 @@ export interface Account {
   group_id: number | null
   warmup: number
   cap_now: number
+  /** Uploads paused until then because a YouTube daily upload limit is used up, and why. */
+  hold_until: number | null
+  hold_reason: string | null
+  /** What YouTube turned out to allow this channel a day, learned from its refusals. */
+  day_limit: number | null
   failed_24h: number
   token_days: number | null
   last_post_at: number | null

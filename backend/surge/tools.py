@@ -56,6 +56,35 @@ def popen(cmd: list, **kw) -> subprocess.Popen:
     return subprocess.Popen([str(c) for c in cmd], creationflags=CREATE_NO_WINDOW, **kw)
 
 
+# Read recordings on their own timestamps. A live capture has holes where the stream dropped out (lag, ad breaks).
+# By default ffmpeg closes a hole of 10 s or more and audio closes the smaller ones, so picture, sound and captions
+# slide apart after every hole. KEEP_HOLES (before -i) and keep_timing() (on the audio) keep each hole as real
+# time instead: the picture holds, the sound is silent, and everything after it stays in step.
+KEEP_HOLES = ["-dts_delta_threshold", "100000"]
+
+
+def keep_timing(rate: int | None = None) -> str:
+    """aresample that follows the audio's timestamps, filling holes with silence."""
+    return f"aresample={rate}:async=1:first_pts=0" if rate else "aresample=async=1:first_pts=0"
+
+
+def holes(path: str | Path, min_gap: float = 0.5) -> list[tuple[float, float]]:
+    """Stretches of a recording with no picture (the stream dropped out), in seconds from the file's start."""
+    p = run([ffprobe(), "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time:format=start_time",
+             "-of", "json", str(path)], timeout=120, check=False)
+    try:
+        info = json.loads(p.stdout or b"{}")
+    except ValueError:
+        return []
+    start = float((info.get("format") or {}).get("start_time") or 0)
+    pts = sorted(float(k["pts_time"]) for k in info.get("packets", []) if k.get("pts_time") not in (None, "N/A"))
+    if len(pts) < 3:
+        return []
+    step = sorted(b - a for a, b in zip(pts, pts[1:]))[len(pts) // 2]  # one frame
+    gap = max(min_gap, step * 3)
+    return [(round(a - start + step, 3), round(b - start, 3)) for a, b in zip(pts, pts[1:]) if b - a > gap]
+
+
 def probe(path: str | Path) -> dict:
     p = run([ffprobe(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
             timeout=60)

@@ -4,25 +4,11 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from . import config, connectors, db, llm, tools, youtube
 from .config import DATA, MODELS
-
-
-def _pacific_midnight() -> float:
-    """YouTube's quota day resets at midnight Pacific (PST = UTC-8, PDT = UTC-7)."""
-    now = datetime.now(timezone.utc)
-    y = now.year
-    # US DST: second Sunday of March 10:00 UTC to first Sunday of November 09:00 UTC (approximation is fine here)
-    mar = datetime(y, 3, 8 + (6 - datetime(y, 3, 8).weekday()) % 7, 10, tzinfo=timezone.utc)
-    nov = datetime(y, 11, 1 + (6 - datetime(y, 11, 1).weekday()) % 7, 9, tzinfo=timezone.utc)
-    offset = timedelta(hours=-7 if mar <= now < nov else -8)
-    local = now + offset
-    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0) - offset
-    return midnight.timestamp()
 
 
 def google_client() -> dict | None:
@@ -44,9 +30,7 @@ def status() -> dict:
     s = config.load()
     yt = db.all("SELECT id, name, status, error FROM accounts WHERE platform='youtube'")
     ig = db.all("SELECT id, name, status, error, token_expires FROM accounts WHERE platform='instagram'")
-    uploads_today = db.scalar(
-        "SELECT COUNT(*) FROM posts p JOIN accounts a ON a.id=p.account_id WHERE a.platform='youtube' "
-        "AND p.external_id IS NOT NULL AND p.updated_at>=?", (_pacific_midnight(),)) or 0
+    uploads_today = youtube.uploads_today()
     soon = time.time() + 10 * 86400
     models = sorted(p.name.replace("models--", "").split("--")[-1] for p in MODELS.glob("models--*")) \
         if MODELS.exists() else []

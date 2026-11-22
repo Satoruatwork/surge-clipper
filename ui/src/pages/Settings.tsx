@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { errorText, load, openUpdate, setState, toast, useStore } from '../lib/store'
+import { errorText, load, openUpdate, setState, settingsUnsaved, toast, useStore } from '../lib/store'
 import type { Settings as S, UpdateInfo } from '../lib/types'
 import { AiConnectors } from '../components/AiConnectors'
 import { Field, Range, Seg, Toggle } from '../components/ui'
@@ -25,28 +25,44 @@ export function Settings() {
   const encoder = useStore((s) => s.encoder)
   const update = useStore((s) => s.update)
   const [checking, setChecking] = useState(false)
-  const [d, setD] = useState<S | null>(saved)
+  const [saving, setSaving] = useState(false)
+  const draft = useStore((s) => s.settingsDraft)
+  const dirty = useStore((s) => settingsUnsaved(s))
   const file = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (saved && !d) setD(saved)
-  }, [saved, d])
-  if (!d || !saved) return <p className="muted">Loading settings…</p>
-
-  const dirty = Object.keys(d).some((k) => d[k] !== saved[k])
-  const set = (k: string) => (v: string | number | boolean) => setD({ ...d, [k]: v })
-  const num = (k: string) => Number(d[k])
-  const str = (k: string) => String(d[k] ?? '')
+  const d: S | null = draft ?? saved
 
   const save = async () => {
+    if (!d || saving) return
+    setSaving(true)
     try {
       const next = await api.put<S>('/api/settings', d)
-      setState({ settings: next })
-      setD(next)
+      setState({ settings: next, settingsDraft: null })
       toast('Settings saved', 'good')
     } catch (e) {
       toast(errorText(e), 'bad')
+    } finally {
+      setSaving(false)
     }
   }
+  const discard = () => setState({ settingsDraft: null })
+
+  useEffect(() => { // Ctrl+S saves while this page is open
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (settingsUnsaved()) void save()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  if (!d || !saved) return <p className="muted">Loading settings…</p>
+
+  const set = (k: string) => (v: string | number | boolean) => setState((s) => ({ settingsDraft: { ...(s.settingsDraft ?? saved), [k]: v } }))
+  const num = (k: string) => Number(d[k])
+  const str = (k: string) => String(d[k] ?? '')
+  const changed = Object.keys(d).filter((k) => d[k] !== saved[k]).length
 
   const checkNow = async () => {
     setChecking(true)
@@ -82,8 +98,8 @@ export function Settings() {
           <p>Changes apply to new clips and posts. Clips already made keep their look until you re-render them.</p>
         </div>
         <div className="actions">
-          <button className="btn" disabled={!dirty} onClick={() => setD(saved)}>Discard</button>
-          <button className="btn primary" disabled={!dirty} onClick={save}>Save changes</button>
+          <button className="btn" disabled={!dirty || saving} onClick={discard}>Discard</button>
+          <button className="btn primary" disabled={!dirty || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</button>
         </div>
       </div>
       <div className="settings">
@@ -178,9 +194,10 @@ export function Settings() {
           </section>
 
           <section id="set-ai">
-            <header><h2>AI writer</h2><p>The AI picks the best moments, trims dead air and writes hooks, titles and a different angle for each account. Connect Anthropic, or any service that speaks the OpenAI format, with just a base URL and an API key. Without a connector, Surge writes copy from the transcript and chat on its own. Connectors save by themselves: the Save changes button above is for the other settings.</p></header>
+            <header><h2>AI writer</h2><p>The AI picks the best moments, trims dead air and writes hooks, titles and a different angle for each account. Connect Anthropic, or any service that speaks the OpenAI format, with just a base URL and an API key. Without a connector, Surge writes copy from the transcript and chat on its own. Connectors save by themselves: the save bar at the bottom is for the other settings.</p></header>
             <AiConnectors />
           </section>
+
 
           <section id="set-distribution">
             <header><h2>Distribution</h2><p>With autopilot on, clips that score high enough are scheduled without you, spread across matching accounts.</p></header>
@@ -248,6 +265,12 @@ export function Settings() {
             </div>
           </section>
         </div>
+      </div>
+      <div className={`save-bar${dirty ? ' dirty' : ''}`} role="region" aria-label="Save settings">
+        <span role="status">{dirty ? `${changed} unsaved change${changed === 1 ? '' : 's'}` : 'All settings saved'}</span>
+        <span className="faint kbd-hint">Ctrl+S</span>
+        <button className="btn" disabled={!dirty || saving} onClick={discard}>Discard</button>
+        <button className="btn primary" disabled={!dirty || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</button>
       </div>
     </>
   )

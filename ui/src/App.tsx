@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AudioLines, BadgeDollarSign, CalendarClock, ChartNoAxesColumn, Clapperboard, MonitorPlay, PlugZap, Settings2, Users } from 'lucide-react'
 import { api } from './lib/api'
-import { connect, errorText, setState, toast, useStore } from './lib/store'
+import { connect, errorText, setState, settingsUnsaved, toast, useStore } from './lib/store'
 import { compact } from './lib/format'
 import { Toasts } from './components/ui'
 import { UpdateBanner } from './components/UpdateBanner'
@@ -84,6 +84,7 @@ export default function App() {
   const ready = useStore((s) => s.clips.filter((c) => c.status === 'ready').length)
   const queued = useStore((s) => s.stats?.posts_queued ?? 0)
   const accounts = useStore((s) => s.accounts.filter((a) => a.active).length)
+  const unsaved = useStore(settingsUnsaved)
 
   useEffect(() => connect(), [])
   useEffect(() => {
@@ -108,6 +109,7 @@ export default function App() {
             <Icon size={18} strokeWidth={1.8} />
             {label}
             {counts[id] ? <span className="count">{counts[id]}</span> : null}
+            {id === 'settings' && unsaved ? <span className="unsaved-dot" role="img" aria-label="unsaved changes" title="Unsaved changes" /> : null}
           </button>
         ))}
         <div className="rail-foot">

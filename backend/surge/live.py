@@ -146,12 +146,15 @@ class LiveMonitor(threading.Thread):
             sl_args += ["--twitch-disable-ads"]
         sl = tools.popen([*sl_args, self.url, "1080p60,1080p,best"], stdout=subprocess.PIPE,
                          stderr=open(work / "streamlink.log", "wb"))
-        ff = tools.popen([tools.ffmpeg(), "-hide_banner", "-v", "error", "-fflags", "+genpts", "-i", "pipe:0",
+        # the PCM clock (samples / SR) must stay on the segments' timeline: keep holes as silence, never close them
+        ff = tools.popen([tools.ffmpeg(), "-hide_banner", "-v", "error", *tools.KEEP_HOLES, "-fflags", "+genpts",
+                          "-i", "pipe:0",
                           "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-f", "segment",
                           "-segment_time", str(SEG), "-segment_format", "mpegts",
                           "-segment_list", str(work / "seg.csv"), "-segment_list_type", "csv",
                           "-segment_list_flags", "live", str(segdir / "s%06d.ts"),
-                          "-map", "0:a:0", "-ac", "1", "-ar", str(SR), "-f", "s16le", "pipe:1"],
+                          "-map", "0:a:0", "-af", tools.keep_timing(), "-ac", "1", "-ar", str(SR), "-f", "s16le",
+                          "pipe:1"],
                          stdin=sl.stdout, stdout=subprocess.PIPE, stderr=open(work / "ffmpeg.log", "wb"))
         sl.stdout.close()
         self.procs = [sl, ff]

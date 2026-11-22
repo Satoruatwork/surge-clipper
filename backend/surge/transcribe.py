@@ -119,10 +119,11 @@ def transcribe(audio, name: str | None = None, offset: float = 0.0, prompt: str 
 
 
 def decode(path: str | Path) -> np.ndarray:
-    """16 kHz mono int16 via ffmpeg (handles .ts/.mp4/anything, unlike PyAV-version-sensitive decoders)."""
+    """16 kHz mono int16 via ffmpeg (handles .ts/.mp4/anything, unlike PyAV-version-sensitive decoders). Sample n is
+    at n / 16000 s on the file's own timeline, holes included, so word times line up with the picture."""
     from . import tools
-    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000",
-                   "-f", "s16le", "-"], timeout=600)
+    p = tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", *tools.KEEP_HOLES, "-i", str(path), "-vn",
+                   "-af", tools.keep_timing(), "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], timeout=600)
     return np.frombuffer(p.stdout, np.int16).copy()
 
 

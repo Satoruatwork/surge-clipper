@@ -18,6 +18,7 @@ _uploads = ThreadPoolExecutor(max_workers=3, thread_name_prefix="upload")
 _busy: set[int] = set()
 _busy_lock = threading.Lock()
 YT_MIN_LEAD = 15 * 60
+UPLOAD_AHEAD = 24 * 3600  # YouTube: upload a Short at most a day before its slot, so each day's uploads fit the day
 
 
 # ---------------------------------------------------------------- copy
@@ -135,8 +136,17 @@ def day_bounds(account: dict, at: float) -> tuple[float, float]:
     return d0.timestamp(), (d0 + timedelta(days=1)).timestamp()
 
 
+def _youtube_posts(start: float, end: float) -> int:
+    return db.scalar("SELECT COUNT(*) FROM posts p JOIN accounts a ON a.id=p.account_id WHERE a.platform='youtube' "
+                     "AND p.status NOT IN ('failed','cancelled') AND p.scheduled_at>=? AND p.scheduled_at<?",
+                     (start, end)) or 0
+
+
 def next_slot(account: dict, after: float) -> float:
+    after = max(after, float(account.get("hold_until") or 0))  # uploads paused: nothing goes out before the pause ends
     cap = growth.effective_cap(account)
+    # one Google project uploads for every YouTube channel: a day holds no more posts than it can upload
+    project_cap = int(config.get("yt_daily_uploads") or 100) if account.get("platform") == "youtube" else 0
     plan = day_plan(account.get("windows"), cap, float(config.get("min_gap_minutes") or 60),
                     float(config.get("slot_jitter_minutes") or 0))
     gap, jitter = plan["gap"] * 60, plan["jitter"] * 60
@@ -151,11 +161,98 @@ def next_slot(account: dict, after: float) -> float:
         taken = _day_posts(account["id"], start)
         if sum(start <= t < end for t in taken) >= cap:
             continue
+        if project_cap and _youtube_posts(start, end) >= project_cap:
+            continue
         for m in plan["slots"]:
             t = (d0 + timedelta(minutes=m)).timestamp() + rnd.uniform(-jitter, jitter)
             if t >= after and all(abs(t - o) >= gap for o in taken):
                 return t
     return after + 86400
+
+
+# ---------------------------------------------------------------- YouTube's daily upload limits
+
+def _when(ts: float) -> str:
+    at = datetime.fromtimestamp(ts)
+    return at.strftime("%H:%M") if at.date() == datetime.now().date() else at.strftime("%a %H:%M")
+
+
+def reslot(account_id: int, after: float) -> int:
+    """Move the account's waiting posts that would go out before `after` to fresh slots after it, in order, so a
+    pause ends in the usual spacing instead of a burst."""
+    acc = db.get("accounts", account_id)
+    ids = [r["id"] for r in db.all("SELECT id FROM posts WHERE account_id=? AND status='queued' AND scheduled_at<? "
+                                   "ORDER BY scheduled_at", (account_id, after))]
+    if not acc or not ids:
+        return 0
+    db.execute(f"UPDATE posts SET scheduled_at=0 WHERE id IN ({','.join('?' * len(ids))})", ids)  # out of the count
+    for pid in ids:
+        at = next_slot(acc, after)
+        db.update("posts", pid, {"scheduled_at": at})
+        bus.publish("post", {"id": pid, "status": "queued", "scheduled_at": at})
+    return len(ids)
+
+
+def hold(account_ids: list[int], until: float, why: str) -> None:
+    """Pause uploads on these accounts until `until` and move their waiting posts after it."""
+    for aid in account_ids:
+        db.update("accounts", aid, {"hold_until": until, "hold_reason": why})
+        reslot(aid, until)
+    bus.publish("accounts", {})
+    bus.note(f"{why} Uploads resume at {_when(until)}; waiting posts moved to new slots.", "warn")
+
+
+def _project_full(refused: bool) -> None:
+    """The Google project's daily upload quota is used up. Surge's own count waits for the quota day to turn; a
+    refusal from YouTube is re-checked every two hours, since YouTube doesn't say when it lifts."""
+    limit = int(config.get("yt_daily_uploads") or 100)
+    until = min(youtube.quota_reset(), time.time() + 2 * 3600) if refused else youtube.quota_reset()
+    why = ("YouTube refused uploads: your Google project's daily upload limit is used up." if refused else
+           f"Your Google project made today's {limit} YouTube uploads (the allowance set in Setup).")
+    hold([a["id"] for a in db.all("SELECT id FROM accounts WHERE platform='youtube'")], until, why)
+
+
+def _channel_full(acc: dict, refused: bool) -> None:
+    """The channel's own daily upload cap is used up. A refusal teaches Surge the cap: the uploads of the last day."""
+    done = youtube.channel_uploads(acc["id"], time.time() - 86400)
+    limit = max(1, len(done)) if refused else int(acc.get("day_limit") or len(done) or 1)
+    if refused:
+        db.update("accounts", acc["id"], {"day_limit": limit})
+    until = min(max(time.time() + 1800, done[0] + 86400 if done else 0), time.time() + 86400)
+    hold([acc["id"]], until, f"YouTube lets {acc['name']} upload about {limit} videos a day, and that's used up.")
+
+
+def recover() -> int:
+    """Posts that failed only because a YouTube daily upload limit was used up go back in line in fresh slots, and
+    each channel learns the cap YouTube showed it. Runs when the engine starts."""
+    rows = db.all("SELECT p.id, p.account_id, p.error, p.updated_at FROM posts p JOIN accounts a ON "
+                  "a.id=p.account_id WHERE p.status='failed' AND a.platform='youtube' AND p.updated_at>?",
+                  (time.time() - 3 * 86400,))
+    found: dict[int, dict] = {}
+    for r in rows:
+        kind = youtube.limit_hit(r["error"] or "")
+        if not kind:
+            continue
+        f = found.setdefault(r["account_id"], {"ids": [], "refused_at": None})
+        f["ids"].append(r["id"])
+        if kind == "channel":
+            f["refused_at"] = min(f["refused_at"] or r["updated_at"], r["updated_at"])
+    for aid, f in found.items():
+        acc = db.get("accounts", aid)
+        if not acc:
+            continue
+        if f["refused_at"] and not acc.get("day_limit"):
+            first = f["refused_at"]
+            n = sum(1 for t in youtube.channel_uploads(aid, first - 86400) if t <= first)
+            db.update("accounts", aid, {"day_limit": max(1, n)})
+        db.execute(f"UPDATE posts SET status='queued', attempts=0, error=NULL WHERE id IN "
+                   f"({','.join('?' * len(f['ids']))})", f["ids"])
+        acc = db.get("accounts", aid) or acc
+        reslot(aid, max(time.time() + 600, float(acc.get("hold_until") or 0)))
+    total = sum(len(f["ids"]) for f in found.values())
+    if total:
+        bus.note(f"{total} posts that hit YouTube's daily upload limit are back in line in new slots.")
+    return total
 
 
 # ---------------------------------------------------------------- assignment
@@ -266,10 +363,12 @@ def _post_job(post_id: int) -> None:
             status = "scheduled" if sched else "published"
             err = ("YouTube locked this video to private: your Google Cloud project has not passed the YouTube API "
                    "audit yet (Settings → Platforms explains how).") if res.get("locked") else None
-            db.update("posts", post_id, {"status": status, "external_id": res["id"], "url": res["url"], "error": err})
+            db.update("posts", post_id, {"status": status, "external_id": res["id"], "url": res["url"], "error": err,
+                                         "uploaded_at": time.time()})
         else:
             res = instagram.publish(acc, clip["path"], post["description"], prog)
-            db.update("posts", post_id, {"status": "published", "external_id": res["id"], "url": res.get("url")})
+            db.update("posts", post_id, {"status": "published", "external_id": res["id"], "url": res.get("url"),
+                                         "uploaded_at": time.time()})
         db.update("accounts", acc["id"], {"last_post_at": time.time(), "last_ok": time.time()})
         if post.get("campaign_id"):
             camp = db.get("campaigns", post["campaign_id"]) or {}
@@ -280,6 +379,17 @@ def _post_job(post_id: int) -> None:
     except Exception as e:
         traceback.print_exc()
         post = db.get("posts", post_id)
+        acc = db.get("accounts", post["account_id"]) if post else None
+        kind = youtube.limit_hit(str(e)) if acc and acc["platform"] == "youtube" else None
+        if kind:  # not this post's fault: it waits for the limit to lift, without using up an attempt
+            db.update("posts", post_id, {"status": "queued", "error": None,
+                                         "attempts": max(0, int(post["attempts"] or 1) - 1)})
+            if kind == "channel":
+                _channel_full(acc, refused=True)
+            else:
+                _project_full(refused=True)
+            bus.publish("post", {"id": post_id, "status": "queued"})
+            return
         attempts = post["attempts"] if post else 3
         retry = attempts < 3
         db.update("posts", post_id, {"status": "queued" if retry else "failed", "error": str(e)[:400],
@@ -293,18 +403,40 @@ def _post_job(post_id: int) -> None:
 
 def _dispatch() -> None:
     now = time.time()
-    rows = db.all("SELECT p.id, p.scheduled_at, a.platform FROM posts p JOIN accounts a ON a.id=p.account_id "
-                  "WHERE p.status='queued' AND a.active=1 ORDER BY p.scheduled_at")
+    rows = db.all("SELECT p.id, p.scheduled_at, p.account_id, a.platform, a.hold_until FROM posts p "
+                  "JOIN accounts a ON a.id=p.account_id WHERE p.status='queued' AND a.active=1 ORDER BY p.scheduled_at")
+    room = None      # YouTube uploads the Google project has left today
+    paused = set()   # accounts held during this pass
     for r in rows:
-        # YouTube: upload early and let YouTube publish on schedule. Instagram: post at the slot time.
-        due = r["platform"] == "youtube" or r["scheduled_at"] <= now
-        if not due:
+        if r["account_id"] in paused or float(r["hold_until"] or 0) > now:
+            continue
+        if r["platform"] == "youtube":
+            # upload up to a day early and let YouTube publish on schedule, within the day's upload limits
+            if r["scheduled_at"] - now > UPLOAD_AHEAD:
+                continue
+            if room is None:
+                with _busy_lock:
+                    busy = len(_busy)
+                room = int(config.get("yt_daily_uploads") or 100) - youtube.uploads_today() - busy
+            if room <= 0:
+                _project_full(refused=False)
+                paused |= {a["id"] for a in db.all("SELECT id FROM accounts WHERE platform='youtube'")}
+                continue
+            acc = db.get("accounts", r["account_id"]) or {}
+            if acc.get("day_limit") and \
+                    len(youtube.channel_uploads(acc["id"], now - 86400)) >= int(acc["day_limit"]):
+                _channel_full(acc, refused=False)
+                paused.add(acc["id"])
+                continue
+        elif r["scheduled_at"] > now:  # Instagram posts from this app at the slot time
             continue
         with _busy_lock:
             if r["id"] in _busy or len(_busy) >= 3:
                 continue
             _busy.add(r["id"])
         _uploads.submit(_post_job, r["id"])
+        if r["platform"] == "youtube":
+            room -= 1
     # scheduled YouTube posts whose time has passed are live now
     db.execute("UPDATE posts SET status='published' WHERE status='scheduled' AND scheduled_at<=?", (now,))
 
@@ -361,6 +493,10 @@ def loop() -> None:
 
 def start() -> None:
     pipeline.on_ready(auto_approve)
+    try:
+        recover()
+    except Exception:
+        traceback.print_exc()
     threading.Thread(target=loop, daemon=True, name="dispatcher").start()
 
 

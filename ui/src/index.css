@@ -2092,16 +2092,45 @@ h2 {
   box-shadow: 0 0 0 9999px rgba(10, 6, 16, 0.45);
 }
 
+.cam-box:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* grips: a square on each corner, the whole of each edge between them (with a pill in the middle to show it) */
 .cam-box .h {
   position: absolute;
-  right: -7px;
-  bottom: -7px;
+  z-index: 1;
+}
+
+.cam-box .h.nw, .cam-box .h.ne, .cam-box .h.sw, .cam-box .h.se {
+  z-index: 2;
   width: 14px;
   height: 14px;
   border-radius: 3px;
   background: var(--sunset);
-  cursor: nwse-resize;
 }
+
+.cam-box .h.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.cam-box .h.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.cam-box .h.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.cam-box .h.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.cam-box .h.n, .cam-box .h.s { left: 8px; right: 8px; height: 12px; cursor: ns-resize; }
+.cam-box .h.n { top: -6px; }
+.cam-box .h.s { bottom: -6px; }
+.cam-box .h.e, .cam-box .h.w { top: 8px; bottom: 8px; width: 12px; cursor: ew-resize; }
+.cam-box .h.e { right: -6px; }
+.cam-box .h.w { left: -6px; }
+
+.cam-box .h.n::after, .cam-box .h.s::after, .cam-box .h.e::after, .cam-box .h.w::after {
+  content: '';
+  position: absolute;
+  border-radius: 3px;
+  background: var(--sunset);
+}
+
+.cam-box .h.n::after, .cam-box .h.s::after { left: calc(50% - 12px); top: 3px; width: 24px; height: 6px; }
+.cam-box .h.e::after, .cam-box .h.w::after { top: calc(50% - 12px); left: 3px; width: 6px; height: 24px; }
 
 .cam-box .tag {
   position: absolute;
@@ -2313,7 +2342,31 @@ code { font-size: 12px; background: var(--night); padding: 1px 5px; border-radiu
 .field.when .seg { justify-self: start; }
 .when-span { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--t-13); color: var(--mist); }
 .when-span .input { width: 116px; }
-.warm-note { flex: 1 1 100%; margin: 0; padding: 9px 12px; border-radius: var(--r-s); background: rgba(255, 179, 71, 0.08); border: 1px solid rgba(255, 179, 71, 0.24); font-size: var(--t-13); color: var(--ink); }
+.warm-note,
+.page-note { flex: 1 1 100%; margin: 0; padding: 9px 12px; border-radius: var(--r-s); background: rgba(255, 179, 71, 0.08); border: 1px solid rgba(255, 179, 71, 0.24); font-size: var(--t-13); color: var(--ink); }
+.page-note { margin-bottom: 14px; }
+
+/* Settings: always-visible save bar at the bottom of the page */
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 10px 14px;
+  border-radius: var(--r-m);
+  background: var(--haze);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 -10px 28px rgba(10, 6, 16, 0.55);
+}
+
+.save-bar > span:first-child { margin-right: auto; color: var(--mist); font-size: var(--t-13); }
+.save-bar.dirty { border-color: rgba(255, 179, 71, 0.55); }
+.save-bar.dirty > span:first-child { color: var(--sodium); font-weight: 600; }
+.save-bar .kbd-hint { font-size: var(--t-12); }
+.nav .unsaved-dot { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--sodium); }
 .bulk-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 16px; border-radius: var(--r-m); background: var(--haze); border: 1px solid var(--line-2); }
 .bulk-bar .inline-form { margin: 0; }
 .group-row { padding: 14px 0; border-top: 1px solid var(--line); }

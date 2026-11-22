@@ -11,6 +11,8 @@ export interface State {
   posts: PostRow[]
   stats: Stats | null
   settings: Settings | null
+  /** Settings edited on the Settings page and not saved yet. Kept here so leaving the page doesn't lose them. */
+  settingsDraft: Settings | null
   styles: Record<string, string>
   encoder: string
   hasGoogleSecret: boolean
@@ -29,7 +31,7 @@ export interface State {
 }
 
 let state: State = {
-  sources: [], clips: [], accounts: [], posts: [], stats: null, settings: null, styles: {}, encoder: '',
+  sources: [], clips: [], accounts: [], posts: [], stats: null, settings: null, settingsDraft: null, styles: {}, encoder: '',
   hasGoogleSecret: false, logs: [], pulses: {}, transcripts: {}, thumbs: {}, uploads: {}, spikes: {},
   connected: false, toasts: [], library: null, watch: [], groups: [], update: null,
 }
@@ -37,6 +39,12 @@ const listeners = new Set<() => void>()
 
 export function getState() {
   return state
+}
+
+/** Unsaved Settings edits: a draft that differs from what's saved. */
+export function settingsUnsaved(s: State = state): boolean {
+  const d = s.settingsDraft
+  return !!d && !!s.settings && Object.keys(d).some((k) => d[k] !== s.settings?.[k])
 }
 
 export function setState(patch: Partial<State> | ((s: State) => Partial<State>)) {

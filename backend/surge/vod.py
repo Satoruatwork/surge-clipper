@@ -63,9 +63,9 @@ def cut_section(urls: list[str], headers: dict, a: float, b: float, out: Path) -
     for u in urls:
         inputs += [*_hdr_args(headers), "-ss", f"{a:.2f}", "-i", u]
     maps = ["-map", "0:v:0", "-map", f"{1 if len(urls) > 1 else 0}:a:0?"]
-    tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *inputs, *maps, "-t", f"{b - a:.2f}",
-               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", "192k", str(out)],
-              timeout=900)
+    tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *tools.KEEP_HOLES, *inputs, *maps,
+               "-t", f"{b - a:.2f}", "-af", tools.keep_timing(), "-c:v", "libx264", "-preset", "ultrafast",
+               "-crf", "16", "-c:a", "aac", "-b:a", "192k", str(out)], timeout=900)
     return out
 
 
@@ -112,8 +112,9 @@ def _run(sid: int, cancel_ev: threading.Event) -> None:
                 if not got:
                     raise RuntimeError("Couldn't download the broadcast's audio.")
                 src_in = ["-i", str(got)]
-            tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *src_in, "-vn", "-ac", "1", "-ar", "16000",
-                       "-f", "s16le", str(audio_path)], timeout=7200)
+            tools.run([tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *tools.KEEP_HOLES, *src_in, "-vn",
+                       "-af", tools.keep_timing(), "-ac", "1", "-ar", "16000", "-f", "s16le", str(audio_path)],
+                      timeout=7200)  # second n of the PCM is second n of the broadcast, holes included
 
         def get_chat():
             nonlocal msgs

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -81,6 +82,35 @@ def test_next_slot_windows_cap_and_gap(monkeypatch):
     taken.append(t2)
     t3 = distribute.next_slot(acc, morning.timestamp())  # cap reached: next day
     assert datetime.fromtimestamp(t3).date() > datetime.fromtimestamp(t1).date()
+
+
+def test_a_hole_in_a_recording_stays_real_time(tmp_path):
+    """A live capture with a dropout: audio, picture and hole detection must all keep the hole, so the voice and
+    captions after it stay in step with the picture (they used to slide 4 to 10 seconds early)."""
+    from surge import tools, transcribe
+    parts = []
+    for i, offset in enumerate((0, 5)):  # 2 s, then a 3 s hole, then 2 s more
+        part = tmp_path / f"p{i}.ts"
+        tools.run([tools.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:r=30:d=2",
+                   "-f", "lavfi", "-i", "sine=f=440:d=2", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+                   "-output_ts_offset", str(offset), "-f", "mpegts", str(part)], timeout=60)
+        parts.append(part.read_bytes())
+    raw = tmp_path / "raw.ts"
+    raw.write_bytes(b"".join(parts))
+    holes = tools.holes(raw)
+    assert len(holes) == 1 and abs(holes[0][0] - 2) < 0.2 and abs(holes[0][1] - 5) < 0.2
+    seconds = len(transcribe.decode(raw)) / 16000
+    assert abs(seconds - 7) < 0.25  # 2 + 3 of silence + 2, not 4
+
+
+def test_clips_keep_off_stream_holes():
+    off = pipeline.off_holes
+    assert off([(40.0, 44.0)], 20, 50, 30, 30, 120) == pytest.approx((9.9, 39.9))  # end cut, start grows back
+    assert off([(18.0, 22.0)], 15, 45, 30, 30, 120) == pytest.approx((22.1, 52.1))  # start moved, end grows
+    assert off([(28.0, 31.0)], 15, 45, 30, 30, 120) is None                        # the moment fell in the hole
+    assert off([(3.0, 9.0), (36.0, 40.0)], 10, 45, 30, 30, 120) == pytest.approx((9.1, 35.9))  # boxed in
+    assert off([(5.0, 9.0), (30.5, 40.0)], 10, 45, 28, 30, 120, grow=False) is None  # too short, may not grow
+    assert off([], 10, 40, 25, 30, 120) == (10, 40)
 
 
 def test_spread_fills_the_day_evenly(monkeypatch):
@@ -168,6 +198,16 @@ def test_game_crop_avoids_facecam():
     crop = chain.split("[g]crop=")[1].split(",")[0]
     cw, ch, cx, cy = (int(v) for v in crop.split(":"))
     assert cx >= 8 + 600  # the game band starts right of the webcam
+
+
+def test_split_band_takes_the_shape_of_the_facecam_box():
+    from surge import render
+    box = [2, 434, 386, 216]
+    assert render.cam_share(box) == pytest.approx(1080 * 216 / 386 / 1920)  # about 31%: the whole box shows
+    assert render.cam_share([0, 0, 800, 100]) == 0.22 and render.cam_share([0, 0, 100, 800]) == 0.55
+    assert render.cam_share(None) == render.CAM_SHARE
+    chain = render.video_chain("split", 1920, 1080, box, 0.5, render.cam_share(box))
+    assert "crop=386:216:2:434" in chain and f"scale=1080:{render.seam_y(render.cam_share(box))}" in chain
 
 
 def test_meme_sound_autotags():

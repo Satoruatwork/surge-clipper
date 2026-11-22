@@ -9,7 +9,8 @@ from . import captions, config, fx, tools
 from .config import DATA, FONTS
 
 W, H = 1080, 1920
-CAM_SHARE = 0.36
+CAM_SHARE = 0.36                 # the facecam band's share of a split clip's height, for a box of the usual shape
+CAM_SHARE_LIMITS = (0.22, 0.55)  # the band follows the box drawn over the webcam, within limits that leave the game room
 
 
 def fonts_arg(work: Path) -> str:
@@ -30,6 +31,15 @@ def even(v: float) -> int:
 
 def seam_y(cam_share: float = CAM_SHARE) -> int:
     return even(H * cam_share)
+
+
+def cam_share(cam: list[int] | None) -> float:
+    """How much of a split clip's height the facecam band takes: the shape of the box over the webcam, so the clip
+    shows exactly what was framed, within limits that leave the game room (a box outside them is centre-cropped)."""
+    if not cam or len(cam) < 4 or cam[2] <= 0 or cam[3] <= 0:
+        return CAM_SHARE
+    lo, hi = CAM_SHARE_LIMITS
+    return min(hi, max(lo, W * cam[3] / cam[2] / H))
 
 
 def video_chain(layout: str, sw: int, sh: int, cam: list[int] | None, focus: float = 0.5,
@@ -78,7 +88,7 @@ def video_chain(layout: str, sw: int, sh: int, cam: list[int] | None, focus: flo
 
 
 def audio_chain(duration: float, bleeps: list[tuple[float, float]], src: str = "0:a") -> str:
-    base = f"[{src}]aresample=48000,aformat=channel_layouts=stereo"
+    base = f"[{src}]{tools.keep_timing(48000)},aformat=channel_layouts=stereo"  # stays in step across stream holes
     if not bleeps:
         return f"{base},loudnorm=I=-14:TP=-1.5:LRA=11[a]"
     cond = "+".join(f"between(t,{max(0, s - 0.03):.3f},{e + 0.03:.3f})" for s, e in bleeps)
@@ -96,20 +106,22 @@ def render(src: Path, start: float, duration: float, out: Path, words: list[dict
     arrives late), < 0 delays it. Writes out + returns it."""
     s = config.load()
     style = style or s["caption_style"]
-    sw, sh = tools.probe(src)["width"], tools.probe(src)["height"]
+    info = tools.probe(src)
+    sw, sh = info["width"], info["height"]
     if layout in ("split", "pip") and not cam:
         layout = "blur"
+    share = cam_share(cam) if layout == "split" else CAM_SHARE
     work = out.parent
     ass = work / f"{out.stem}.ass"
     captions.write(ass, captions.build_ass(
         words, duration, layout, style, hook=hook, hook_seconds=float(s["hook_seconds"]), tag=tag,
-        seam_y=seam_y() if layout == "split" else None, profanity=s["profanity"],
+        seam_y=seam_y(share) if layout == "split" else None, profanity=s["profanity"],
         max_words=int(s.get("caption_words") or 0) or None))
     fonts_rel = fonts_arg(work)
     fps = int(s["fps"])
     fx_res = fx_res or {}
     extra: list[str] = []          # extra ffmpeg inputs after the source (index 1..)
-    vchain = [video_chain(layout, sw, sh, cam, focus), f"[base]fps={fps}[f0]"]
+    vchain = [video_chain(layout, sw, sh, cam, focus, share), f"[base]fps={fps}[f0]"]
     cur = "f0"
     zp = fx.zoompan(fx_res.get("zooms") or [], fx_res.get("shakes") or [], fps, W, H)
     if zp:
@@ -120,7 +132,7 @@ def render(src: Path, start: float, duration: float, out: Path, words: list[dict
         vchain.append(f"[{cur}]{fl}[f2]")
         cur = "f2"
     if s.get("stickers", True):
-        spots = fx.sticker_spots(layout, seam_y())
+        spots = fx.sticker_spots(layout, seam_y(share))
         for i, st in enumerate(fx_res.get("stickers") or []):
             path = fx.library.stickers().get(st["name"])
             if not path:
@@ -177,8 +189,8 @@ def render(src: Path, start: float, duration: float, out: Path, words: list[dict
                          "dropout_transition=0,alimiter=limit=0.95,loudnorm=I=-14:TP=-1.5:LRA=11[a]")
             achain = ";".join(parts)
     fg = vf + (";" + achain if achain else "")
-    cmd = [tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{duration:.3f}",
-           "-i", str(src), *extra, "-filter_complex", fg, "-map", "[v]"]
+    cmd = [tools.ffmpeg(), "-hide_banner", "-v", "error", "-y", *tools.KEEP_HOLES, "-ss", f"{start:.3f}",
+           "-t", f"{duration:.3f}", "-i", str(src), *extra, "-filter_complex", fg, "-map", "[v]"]
     if has_audio:
         cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"]
     cmd += [*tools.encoder_args(s["encoder"]), "-r", str(int(s["fps"])), "-movflags", "+faststart",

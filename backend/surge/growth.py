@@ -14,11 +14,14 @@ WEEK = 7 * 86400
 
 
 def effective_cap(account: dict) -> int:
-    """Warm-up: a new account posts 1 a day in week one, 2 in week two, ... up to its own cap."""
+    """Posts a day this account can really make. Warm-up: a new account posts 1 a day in week one, 2 in week two, ...
+    up to its own cap. day_limit: what YouTube turned out to allow this channel (learned from its refusals)."""
     cap = int(account.get("daily_cap") or 4)
     if account.get("warmup"):
         started = float(account.get("warmup_started") or account.get("created_at") or time.time())
         cap = min(cap, 1 + int((time.time() - started) // WEEK))
+    if account.get("day_limit"):
+        cap = min(cap, int(account["day_limit"]))
     return max(1, cap)
 
 

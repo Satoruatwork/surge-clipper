@@ -117,6 +117,10 @@ broadcast must still be up on Twitch.
   posting times, tags and caps, bulk pause/resume/cap/group, and warm-up (1 post a day, one more each week).
   Posting is either set times (one post each) or **Spread through the day**: the day's posts spaced evenly between
   two hours (all day by default), so 30 a day goes out about every 48 minutes.
+- **YouTube's daily upload limits**: one Google project uploads for all your channels (the allowance in Setup), and
+  each channel has its own cap. Surge never plans a day with more posts than the project can upload, learns each
+  channel's cap from YouTube's refusals, and when a limit is reached it waits and moves waiting posts to new slots
+  instead of failing them. Shorts upload at most a day before their slot.
 - **Campaign sites** (Campaigns, Sites): up to 12 boards and agencies. Sign in on each in a Surge window (you type
   your own password on the site; the sign-in is kept), join campaigns and link accounts there, then tick the linked
   accounts in Surge. Surge does not automate these sites: their terms forbid it and it gets payout accounts banned.
