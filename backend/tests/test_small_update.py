@@ -100,11 +100,46 @@ def test_the_swap_script_updates_the_folder_and_restarts(tmp_path, monkeypatch):
     dead = subprocess.Popen(["cmd.exe", "/c", "exit 0"])
     dead.wait()  # a process id that has already exited: the script doesn't wait
     bat = work / "apply.cmd"
-    bat.write_text(updates.script(old, work, plan, "1.0.1", dead.pid, uninstall_key=r"Software\SurgeTest\NoSuchKey"),
-                   encoding="utf-8")
-    subprocess.run(["cmd.exe", "/c", str(bat)], timeout=120, check=False)
+    bat.write_text(updates.script(old, work, plan, "1.0.1", dead.pid), encoding="utf-8")
+    subprocess.run(["cmd.exe", "/c", str(bat)], timeout=120, check=False, stdin=subprocess.DEVNULL,
+                   capture_output=True)  # no console, like the real run
     assert (old / "Surge.exe").read_bytes() == NEW["Surge.exe"]
     assert (old / "_internal/ui/index-new.js").read_bytes() == NEW["_internal/ui/index-new.js"]
     assert not (old / "_internal/ui/index-old.js").exists()
     assert (old / "unins000.exe").exists()  # the uninstaller stays
     assert (work / "backup/Surge.exe").exists() and "done" in (work / "apply.log").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the swap script is a Windows batch file")
+def test_the_swap_script_waits_for_surge_to_close(tmp_path):
+    """The wait must really wait without a console (`timeout` returns at once there, and the copy hit a running
+    Surge.exe)."""
+    import time
+    old, zpath = build_patch(tmp_path)
+    work = tmp_path / "work"
+    plan = updates.stage(zpath, work / "files")
+    sleeper = subprocess.Popen(["cmd.exe", "/c", "ping -n 4 127.0.0.1 >nul"])  # "Surge", closing in ~3 s
+    bat = work / "apply.cmd"
+    bat.write_text(updates.script(old, work, plan, "1.0.1", sleeper.pid), encoding="utf-8")
+    t0 = time.time()
+    subprocess.run(["cmd.exe", "/c", str(bat)], timeout=120, check=False, stdin=subprocess.DEVNULL,
+                   capture_output=True)
+    assert time.time() - t0 >= 2.0 and sleeper.poll() is not None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Apps & features lives in the Windows registry")
+def test_the_app_keeps_its_apps_and_features_version_in_step():
+    import winreg
+    key = r"Software\SurgeTest\UninstallEntry"
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as k:
+        winreg.SetValueEx(k, "DisplayVersion", 0, winreg.REG_SZ, "0.0.1")
+    try:
+        assert updates.sync_uninstall_entry(key) is True
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+            assert winreg.QueryValueEx(k, "DisplayVersion")[0] == updates.__version__
+            assert winreg.QueryValueEx(k, "DisplayName")[0] == f"Surge {updates.__version__}"
+        assert updates.sync_uninstall_entry(key) is False  # already in step
+        assert updates.sync_uninstall_entry(r"Software\SurgeTest\NoSuchEntry") is False
+    finally:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\SurgeTest")

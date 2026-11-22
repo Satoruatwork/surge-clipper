@@ -292,18 +292,18 @@ def _backup(app: Path, plan: dict, dest: Path) -> None:
             shutil.copy2(src, dest / rel)
 
 
-def script(app: Path, work: Path, plan: dict, version: str, pid: int, uninstall_key: str = UNINSTALL_KEY) -> str:
+def script(app: Path, work: Path, plan: dict, version: str, pid: int) -> str:
     """The batch file that swaps the files in once Surge has closed, then starts it again. A failed copy puts the
-    backed-up files back."""
+    backed-up files back. (The new version sets its own Apps & features entry when it starts.)"""
     (work / "removed.txt").write_text("".join(r.replace("/", "\\") + "\n" for r in plan["removed"]), encoding="utf-8")
-    key = "HKCU\\" + uninstall_key
     return "\r\n".join([
         "@echo off", "chcp 65001 >nul", "setlocal",
         f'set "APP={app}"', f'set "WORK={work}"', 'set "LOG=%WORK%\\apply.log"',
         f'echo Updating Surge to {version} > "%LOG%"',
         "for /l %%i in (1,1,90) do (",
         f'  tasklist /FI "PID eq {pid}" /NH 2>nul | find " {pid} " >nul || goto ready',
-        "  timeout /t 1 /nobreak >nul", ")",
+        # one second; `timeout` needs a console and returns at once without one
+        "  ping -n 2 127.0.0.1 >nul", ")",
         ":ready",
         # helpers Surge started (ffmpeg, streamlink, yt-dlp) must not hold files open
         "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Get-Process | Where-Object { $_.Path -and "
@@ -312,8 +312,6 @@ def script(app: Path, work: Path, plan: dict, version: str, pid: int, uninstall_
         'robocopy "%WORK%\\files" "%APP%" /E /R:10 /W:1 /NP /NFL /NDL >> "%LOG%"',
         "if errorlevel 8 goto undo",
         'for /f "usebackq delims=" %%F in ("%WORK%\\removed.txt") do del /f /q "%APP%\\%%F" >> "%LOG%" 2>&1',
-        f'reg query "{key}" >nul 2>&1 && reg add "{key}" /v DisplayVersion /d "{version}" /f >nul',
-        f'reg query "{key}" >nul 2>&1 && reg add "{key}" /v DisplayName /d "Surge {version}" /f >nul',
         'echo done >> "%LOG%"', 'cd /d "%APP%"', 'start "" "%APP%\\Surge.exe"', "exit /b 0",
         ":undo", 'echo copy failed, restoring the old files >> "%LOG%"',
         'robocopy "%WORK%\\backup" "%APP%" /E /R:10 /W:1 /NP /NFL /NDL >> "%LOG%"',
@@ -365,6 +363,21 @@ def _quit() -> None:
         os._exit(0)
 
 
+def sync_uninstall_entry(key: str = UNINSTALL_KEY) -> bool:
+    """Keep Apps & features showing the version that runs: a small update replaces files without the installer.
+    Only touches the installer's own entry when it exists. Returns True when it changed something."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
+            if winreg.QueryValueEx(k, "DisplayVersion")[0] == __version__:
+                return False
+            winreg.SetValueEx(k, "DisplayVersion", 0, winreg.REG_SZ, __version__)
+            winreg.SetValueEx(k, "DisplayName", 0, winreg.REG_SZ, f"Surge {__version__}")
+            return True
+    except OSError:  # not installed with the installer (or no entry): nothing to keep in step
+        return False
+
+
 def resume_after_update() -> None:
     """After a small update: start the live recordings that were running, once, and clear the update's files."""
     try:
@@ -391,6 +404,8 @@ def resume_after_update() -> None:
 
 def _loop() -> None:
     try:
+        if can_patch():
+            sync_uninstall_entry()
         resume_after_update()
     except Exception:  # a resume problem must never stop the update checks
         pass

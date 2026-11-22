@@ -2,6 +2,10 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.4.5
+
+- Small updates wait for Surge to close before swapping files (the wait used a command that returns at once without a console window, so the swap closed Surge by force), and Apps & features shows the new version after a small update: Surge now keeps its own entry in step when it starts.
+
 ## 0.4.4
 
 - Small updates: when a new version is out, **Update now** downloads only the files that changed (usually a few megabytes instead of the whole 300 MB installer), checks every file against the release's checksums, keeps a copy of the files it replaces, then restarts Surge into the new version and starts your live recordings again. If anything doesn't check out, the old files stay and the full installer is still one click away.
