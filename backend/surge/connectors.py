@@ -1,8 +1,9 @@
 """AI connectors: where the AI writer sends its requests. A connector is a base URL, an API key and two model names, for
-Anthropic or for any OpenAI-compatible service (OpenAI, Gemini, DeepSeek, Groq, OpenRouter, Ollama, LM Studio...).
+Anthropic or for any OpenAI-compatible service (OpenAI, Gemini, OpenCode, DeepSeek, Groq, OpenRouter, Ollama...).
 Keys are encrypted at rest with Windows DPAPI and never leave the engine: the API only reports whether one is set."""
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import re
@@ -13,16 +14,37 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import config, vault
+from . import __version__, config, vault
 from .config import DATA
 
 FILE = DATA / "connectors.json"
+CHECKS_FILE = DATA / "model_checks.json"  # which models passed or failed Surge's test, per service and key
+CHECK_KEEP = {True: 7 * 86400, False: 86400}  # a pass is trusted for a week; a failure is retried after a day
 PROTOCOLS = ("openai", "anthropic")
 ANTHROPIC_VERSION = "2023-06-01"
+USER_AGENT = f"Surge/{__version__}"
+OPENCODE_MODELS = "https://opencode.ai/inference/v1/models"  # public lists with prices; Go has its own
+OPENCODE_GO_MODELS = "https://opencode.ai/inference/go/v1/models"
 
 # Starting points for the "Add connector" form. Model names are what these services list today; they rename models
-# often, so the form also has Fetch models, and Test checks that a model really works with Surge's prompts.
+# often, so the form also has Fetch models and Pick for me, and Test checks that a model works with Surge's prompts.
+# "quick" presets need only a key: Surge picks and tests the models itself.
 PRESETS = [
+    {"id": "gemini", "name": "Google Gemini", "protocol": "openai", "quick": True,
+     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+     "model": "gemini-3.8-flash", "rank_model": "gemini-3.8-flash", "key_url": "https://aistudio.google.com/apikey",
+     "note": "Paste a Google AI Studio key. A free key gets Gemini Flash at no cost with daily limits; Surge picks the "
+             "best model your key can use and tests it."},
+    {"id": "opencode-go", "name": "OpenCode Go", "protocol": "openai", "quick": True,
+     "base_url": "https://opencode.ai/inference/go/openai/v1",
+     "model": "deepseek-v4.1-flash", "rank_model": "glm-5.3", "key_url": "https://opencode.ai/console",
+     "note": "Uses your Go subscription's allowance (paste the oc_sk_ key from the Console). Go is built for coding "
+             "agents and OpenCode watches its traffic, so keep Surge's volume modest on it."},
+    {"id": "opencode-zen", "name": "OpenCode Zen (pay per use)", "protocol": "openai", "quick": True,
+     "base_url": "https://opencode.ai/inference/openai/v1",
+     "model": "claude-haiku-5-5", "rank_model": "claude-sonnet-5-5", "key_url": "https://opencode.ai/console",
+     "note": "Pay-as-you-go credits in the OpenCode Console, one key for Claude, GPT, Gemini, DeepSeek, Qwen and more. "
+             "OpenCode's free models only work inside OpenCode, so Surge picks paid ones."},
     {"id": "anthropic", "name": "Anthropic", "protocol": "anthropic", "base_url": "https://api.anthropic.com",
      "model": "claude-haiku-5-5", "rank_model": "claude-sonnet-5-5",
      "key_url": "https://console.anthropic.com/settings/keys",
@@ -30,10 +52,6 @@ PRESETS = [
     {"id": "openai", "name": "OpenAI", "protocol": "openai", "base_url": "https://api.openai.com/v1",
      "model": "gpt-6-luna", "rank_model": "gpt-6.2-sol", "key_url": "https://platform.openai.com/api-keys",
      "note": "gpt-6-luna is the cheap fast tier; gpt-6.2-sol is stronger for ranking."},
-    {"id": "gemini", "name": "Google Gemini", "protocol": "openai",
-     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-     "model": "gemini-3.8-flash", "rank_model": "gemini-4-hydrogen", "key_url": "https://aistudio.google.com/apikey",
-     "note": "Google AI Studio keys may have a free tier with limits."},
     {"id": "deepseek", "name": "DeepSeek", "protocol": "openai", "base_url": "https://api.deepseek.com",
      "model": "deepseek-flash", "rank_model": "deepseek-v4-pro", "key_url": "https://platform.deepseek.com/api_keys",
      "note": "The cheapest of the big options."},
@@ -64,13 +82,15 @@ RECOMMENDED = {
     "picks": [
         {"label": "Best results", "detail": "Anthropic: Claude Haiku 5.5 for each clip and Claude Sonnet 5.5 for ranking a "
                                             "broadcast. Surge's prompts were written and tuned with Claude."},
+        {"label": "One key, many models", "detail": "OpenCode Zen (pay per use: Claude, GPT, Gemini, DeepSeek, Qwen...) or "
+                                                    "OpenCode Go (your subscription's allowance). Paste the key and Surge "
+                                                    "picks and tests the models."},
         {"label": "No Anthropic account", "detail": "OpenAI (gpt-6-luna for clips, gpt-6.2-sol for ranking), Google Gemini "
-                                                    "(gemini-3.8-flash, gemini-4-hydrogen) or DeepSeek (deepseek-flash, "
-                                                    "deepseek-v4-pro, the cheapest). Any OpenAI-compatible service works: "
-                                                    "paste its base URL and key."},
-        {"label": "Free", "detail": "OpenRouter models whose name ends in :free (for example Gemma 4 31B), a free Google AI "
-                                    "Studio key, or a model on your own PC with Ollama or LM Studio. Free tiers change and "
-                                    "are rate limited."},
+                                                    "or DeepSeek (deepseek-flash, deepseek-v4-pro, the cheapest). Any "
+                                                    "OpenAI-compatible service works: paste its base URL and key."},
+        {"label": "Free", "detail": "A free Google AI Studio key (Gemini Flash, daily limits), OpenRouter models whose name "
+                                    "ends in :free, or a model on your own PC with Ollama or LM Studio. Free tiers change "
+                                    "and are rate limited."},
         {"label": "On your own PC", "detail": "Use a 14B or larger instruct model. Models under 8B often break the JSON, "
                                               "and then Surge falls back to its built-in writer for that clip."},
     ],
@@ -79,7 +99,8 @@ RECOMMENDED = {
         "roughly a tenth of a cent per clip.",
         "Ranking a broadcast sends about 15,000 to 20,000 tokens once: pick a stronger model with at least 64k context.",
         "Press Test before you rely on a model. Surge sends a real clip prompt and checks that the reply is clean JSON.",
-        "Model names change often. Fetch models shows what your service offers today.",
+        "Model names change often. Fetch models shows what your service offers today, with prices where the service "
+        "publishes them, and Pick for me tests the best candidates and keeps the first that works.",
     ],
 }
 
@@ -151,6 +172,12 @@ def overview() -> dict:
         data = _load()
         return {"connectors": [public(i) for i in data["items"]], "active": data["active"],
                 "presets": PRESETS, "recommended": RECOMMENDED}
+
+
+def saved() -> list[dict]:
+    """Every saved connector with its key. For the engine only."""
+    with _lock:
+        return [dict(i) for i in _load()["items"]]
 
 
 def active() -> dict | None:
@@ -275,6 +302,43 @@ def reset_cache() -> None:
         _cache = None
 
 
+# ------------------------------------------------------------------ test results
+
+def _account(conn: dict) -> str:
+    """Which service and key a test result belongs to, without keeping the key."""
+    return conn["base_url"] + "#" + hashlib.sha256((conn.get("api_key") or "").encode()).hexdigest()[:12]
+
+
+def _read_checks() -> dict:
+    try:
+        data = json.loads(CHECKS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def record_check(conn: dict, model: str, role: str, ok: bool, message: str) -> None:
+    with _lock:
+        data = _read_checks()
+        data.setdefault(_account(conn), {}).setdefault(model, {})[role] = \
+            {"ok": bool(ok), "at": time.time(), "message": str(message)[:300]}
+        try:
+            CHECKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CHECKS_FILE.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+
+def checks(conn: dict) -> dict[str, dict[str, bool]]:
+    """Recent test results on this service and key: {model: {"clip"|"rank": passed}}."""
+    now = time.time()
+    with _lock:
+        mine = _read_checks().get(_account(conn)) or {}
+    return {model: {role: bool(v.get("ok")) for role, v in roles.items()
+                    if isinstance(v, dict) and now - float(v.get("at") or 0) < CHECK_KEEP[bool(v.get("ok"))]}
+            for model, roles in mine.items() if isinstance(roles, dict)}
+
+
 # ------------------------------------------------------------------ talking to the service
 
 def _host(conn: dict) -> str:
@@ -309,14 +373,14 @@ def _http_error(conn: dict, status: int, text: str, model: str) -> ConnectorErro
     return ConnectorError(f"{host} answered {status}: {detail}")
 
 
-def _post(url: str, headers: dict, body: dict) -> httpx.Response:
+def _post(url: str, headers: dict, body: dict, retry: bool = True) -> httpx.Response:
     for attempt in range(3):
         try:
             r = httpx.post(url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=10.0),
                            follow_redirects=True)
         except httpx.HTTPError as e:
             raise ConnectorError(f"Couldn't reach {urlparse(url).netloc}: {e}") from e
-        if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+        if retry and r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
             try:
                 wait = float(r.headers.get("retry-after") or 2 * (attempt + 1))
             except ValueError:
@@ -334,10 +398,29 @@ def _get(url: str, headers: dict) -> httpx.Response:
         raise ConnectorError(f"Couldn't reach {urlparse(url).netloc}: {e}") from e
 
 
-def _chat_anthropic(conn: dict, prompt: str, system: str, model: str, max_tokens: int) -> str:
+def is_opencode(conn: dict) -> bool:
+    host = urlparse(conn.get("base_url") or "").hostname or ""
+    return host == "opencode.ai" or host.endswith(".opencode.ai")
+
+
+_sessions: dict[str, str] = {}
+
+
+def _headers(conn: dict) -> dict:
+    """Name Surge to the service. OpenCode routes and caches by a stable session id, and Go requires one."""
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+    if conn.get("api_key"):
+        headers["Authorization"] = "Bearer " + conn["api_key"]
+    if is_opencode(conn):
+        headers["x-opencode-session"] = _sessions.setdefault(conn["base_url"], "ses_surge_" + uuid.uuid4().hex[:20])
+    return headers
+
+
+def _chat_anthropic(conn: dict, prompt: str, system: str, model: str, max_tokens: int, retry: bool = True) -> str:
     import anthropic
-    client = anthropic.Anthropic(api_key=conn.get("api_key") or "none", base_url=conn["base_url"], max_retries=2,
-                                 timeout=90)
+    client = anthropic.Anthropic(api_key=conn.get("api_key") or "none", base_url=conn["base_url"],
+                                 max_retries=2 if retry else 0, timeout=90,
+                                 default_headers={"User-Agent": USER_AGENT})
     try:
         msg = client.messages.create(model=model, max_tokens=max_tokens, system=system,
                                      messages=[{"role": "user", "content": prompt}])
@@ -348,11 +431,9 @@ def _chat_anthropic(conn: dict, prompt: str, system: str, model: str, max_tokens
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
 
 
-def _chat_openai(conn: dict, prompt: str, system: str, model: str, max_tokens: int) -> str:
+def _chat_openai(conn: dict, prompt: str, system: str, model: str, max_tokens: int, retry: bool = True) -> str:
     url = conn["base_url"] + "/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    if conn.get("api_key"):
-        headers["Authorization"] = "Bearer " + conn["api_key"]
+    headers = _headers(conn)
     quirk = _quirks.setdefault((conn["base_url"], model), {})
     r = None
     for _ in range(4):  # servers differ on a few parameters: learn what this one rejects, then stop sending it
@@ -361,7 +442,7 @@ def _chat_openai(conn: dict, prompt: str, system: str, model: str, max_tokens: i
         body["max_completion_tokens" if quirk.get("completion_tokens") else "max_tokens"] = max_tokens
         if not quirk.get("no_json_mode"):
             body["response_format"] = {"type": "json_object"}
-        r = _post(url, headers, body)
+        r = _post(url, headers, body, retry)
         if r.status_code != 400:
             break
         why = r.text.lower()
@@ -388,20 +469,25 @@ def _chat_openai(conn: dict, prompt: str, system: str, model: str, max_tokens: i
     return str(text)
 
 
-def chat(conn: dict, prompt: str, system: str, model: str, max_tokens: int = 1500) -> str:
-    """One request to the connector's service. Returns the reply text or raises ConnectorError."""
+def chat(conn: dict, prompt: str, system: str, model: str, max_tokens: int = 1500, retry: bool = True) -> str:
+    """One request to the connector's service. Returns the reply text or raises ConnectorError. retry=False gives up
+    on the first 429/5xx, for tests that would rather move on to the next model than wait."""
     if conn["protocol"] == "anthropic":
-        return _chat_anthropic(conn, prompt, system, model, max_tokens)
-    return _chat_openai(conn, prompt, system, model, max_tokens)
+        return _chat_anthropic(conn, prompt, system, model, max_tokens, retry)
+    return _chat_openai(conn, prompt, system, model, max_tokens, retry)
 
 
-def list_models(conn: dict) -> list[str]:
+def model_rows(conn: dict) -> list[dict]:
+    """The service's own model list, as it sends it (OpenCode's public lists carry prices and release dates)."""
     if conn["protocol"] == "anthropic":
         url = conn["base_url"] + "/v1/models"
-        headers = {"x-api-key": conn.get("api_key") or "none", "anthropic-version": ANTHROPIC_VERSION}
+        headers = {"x-api-key": conn.get("api_key") or "none", "anthropic-version": ANTHROPIC_VERSION,
+                   "User-Agent": USER_AGENT}
     else:
         url = conn["base_url"] + "/models"
-        headers = {"Authorization": "Bearer " + conn["api_key"]} if conn.get("api_key") else {}
+        if is_opencode(conn):
+            url = OPENCODE_GO_MODELS if "/go/" in urlparse(conn["base_url"]).path + "/" else OPENCODE_MODELS
+        headers = {k: v for k, v in _headers(conn).items() if k != "Content-Type"}
     r = _get(url, headers)
     if r.status_code >= 400:
         raise _http_error(conn, r.status_code, r.text, "")
@@ -409,6 +495,10 @@ def list_models(conn: dict) -> list[str]:
         data = r.json()
     except ValueError as e:
         raise ConnectorError(f"{_host(conn)} did not answer with a model list. Is the base URL right?") from e
-    rows = data.get("data") or data.get("models") or [] if isinstance(data, dict) else data
-    ids = {str(m.get("id") or m.get("name") or "").removeprefix("models/") for m in rows if isinstance(m, dict)}
+    rows = (data.get("data") or data.get("models") or []) if isinstance(data, dict) else data
+    return [m for m in rows if isinstance(m, dict) and (m.get("id") or m.get("name"))] if isinstance(rows, list) else []
+
+
+def list_models(conn: dict) -> list[str]:
+    ids = {str(m.get("id") or m.get("name") or "").removeprefix("models/") for m in model_rows(conn)}
     return sorted(i for i in ids if i)[:500]

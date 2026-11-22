@@ -137,16 +137,25 @@ The AI writer is optional. Surge works without it: its built-in writer uses the 
 behind it you get sharper hooks and titles, a different angle for each account, a better edit plan, and better ranking
 of broadcast moments. You do not need an Anthropic subscription: a connector is just a **base URL** and an **API key**.
 
-Settings, AI writer, **Add connector**: pick a service (or *Custom*), paste your key, press **Fetch models**, choose a
-model for each clip and one for ranking a broadcast, then press **Test**. Surge sends a real clip prompt and checks that
-the reply is clean JSON before you rely on it. Add as many connectors as you like and switch with **Use this**. Keys are
-stored encrypted on your PC.
+Settings, AI writer, **Add connector**. For **Google Gemini**, **OpenCode Go** and **OpenCode Zen** you only paste the
+key and press **Connect**: Surge tests the best models your key can use with a real clip prompt and keeps the first that
+answers with clean JSON, for clips and for ranking. For other services, pick one (or *Custom*), paste your key, and
+press **Pick for me**, or **Fetch models** to choose yourself (the list shows what each model costs Surge per 1,000
+clips and per broadcast, best ones first), then **Test**. Add as many connectors as you like and switch with **Use
+this**. Keys are stored encrypted on your PC.
+
+Once you have a connector, **Best and cheapest models across your keys** compares every service you added and names
+the best and the cheapest model for each job, with a **Use** button that tests the model before switching to it. Models
+that failed Surge's test on your key are left out (failures are retried after a day). Prices come from OpenCode's and
+OpenRouter's public model lists and Google's pricing page.
 
 | Service | Base URL | Each clip | Ranking a broadcast |
 |---|---|---|---|
+| Google Gemini (free key works) | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-3.8-flash` (free tier) | a Gemini 4 model on a paid key, else the same |
+| OpenCode Go (subscription) | `https://opencode.ai/inference/go/openai/v1` | picked for you | picked for you |
+| OpenCode Zen (pay per use) | `https://opencode.ai/inference/openai/v1` | `claude-haiku-5-5` | `claude-sonnet-5-5` |
 | Anthropic (best results) | `https://api.anthropic.com` | `claude-haiku-5-5` | `claude-sonnet-5-5` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-6-luna` | `gpt-6.2-sol` |
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-3.8-flash` | `gemini-4-hydrogen` |
 | DeepSeek (cheapest) | `https://api.deepseek.com` | `deepseek-flash` | `deepseek-v4-pro` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `deepseek/deepseek-v4.1-flash`, or any `:free` model | `anthropic/claude-sonnet-5.5` |
 | Groq | `https://api.groq.com/openai/v1` | press Fetch models | press Fetch models |
@@ -160,8 +169,11 @@ today. How to choose:
   with Claude.
 - **No Anthropic account**: any model on the list works if it passes **Test**. DeepSeek is the cheapest; OpenAI and
   Gemini are solid.
-- **Free**: OpenRouter models whose name ends in `:free` (for example Gemma 4 31B), a free Google AI Studio key, or a
-  model on your own PC with Ollama. Free tiers change and are rate limited.
+- **Free**: a free Google AI Studio key (Gemini Flash, with daily limits), OpenRouter models whose name ends in `:free`,
+  or a model on your own PC with Ollama. Free tiers change and are rate limited. OpenCode's free models only work inside
+  OpenCode itself, so Surge uses its paid models.
+- **OpenCode Go** is built for coding agents and OpenCode watches its traffic. Surge sends small requests and names
+  itself, but keep its volume modest on Go; Zen (pay per use) has no such rule.
 - **On your own PC**: use a 14B or larger instruct model. Models under 8B often break the JSON Surge needs, and then
   Surge falls back to its built-in writer for that clip.
 - Each clip is one short request, so pick a fast model that does not "think" first. On the cheap tier that is roughly a
@@ -217,6 +229,7 @@ account per day. Reels post from this app at their slot time, so leave Surge run
 | Database | `surge.db` | same |
 | Settings | `settings.json` (API keys encrypted with Windows DPAPI) | same |
 | AI connectors | `connectors.json` (keys encrypted with Windows DPAPI) | same |
+| Model test results | `model_checks.json` (which models passed Surge's test on each key; no keys) | same |
 | Account tokens | `tokens\` (encrypted with Windows DPAPI) | same |
 | Meme sound pack | `sfx\` | same |
 | Whisper models | `models\` | same |

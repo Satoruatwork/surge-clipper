@@ -307,6 +307,8 @@ export interface ConnectorPreset {
   rank_model: string
   key_url: string | null
   note: string
+  /** Needs only a key: Surge picks and tests the models itself. */
+  quick?: boolean
 }
 
 export interface ConnectorsData {
@@ -314,6 +316,51 @@ export interface ConnectorsData {
   active: string | null
   presets: ConnectorPreset[]
   recommended: { intro: string; picks: { label: string; detail: string }[]; rules: string[] }
+}
+
+export type ModelRole = 'clip' | 'rank'
+
+/** One model a service offers, with what Surge knows about it. Costs are dollars: clip_cost per 1,000 clips,
+ * rank_cost per broadcast; free says why it costs nothing. */
+export interface ModelInfo {
+  id: string
+  name: string
+  price_in: number | null
+  price_out: number | null
+  free: string | null
+  clip_cost: number | null
+  rank_cost: number | null
+  context: number | null
+  released: number
+  tier: 'fast' | 'strong'
+  allowance: number | null
+  fit: Record<ModelRole, number>
+  clip_note: string
+  rank_note: string
+  /** Recent result of Surge's test on this key: true passed, false failed, null not tested. */
+  checked?: Record<ModelRole, boolean | null>
+  connector?: string
+  connector_name?: string
+}
+
+export interface ModelListing {
+  models: string[]
+  details: ModelInfo[]
+  best: Record<ModelRole, string | null>
+  cheapest: Record<ModelRole, string | null>
+}
+
+export interface PickResult {
+  ok: boolean
+  model?: string
+  rank_model?: string
+  message: string
+  tried: { model: string; role: ModelRole; ok: boolean; message: string }[]
+}
+
+export interface ModelPicks {
+  picks: Record<ModelRole, { best: ModelInfo | null; cheapest: ModelInfo | null }>
+  errors: { connector: string; name: string; error: string }[]
 }
 
 export interface Breakdown { name: string; posts: number; views: number; avg: number }

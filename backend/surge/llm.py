@@ -145,37 +145,61 @@ id c03 · signal 5.5 · chat: shock
 Return JSON: {"picks": [{"id": "c03", "score": 1-10, "reason": "short"}]}"""
 
 
-def test(conn: dict) -> dict:
-    """Run a real (small) clip prompt through a connector and check the reply is what Surge needs. Never raises."""
-    model, rank_model = conn["model"], conn.get("rank_model") or conn["model"]
+def check_clip(conn: dict, model: str, retry: bool = True) -> tuple[bool, str]:
+    """Run a real (small) clip prompt through one model and check the reply is what Surge needs. Never raises. The
+    result is remembered, so the model picks leave out models that failed on this key."""
+    ok, message = _check_clip(conn, model, retry)
+    connectors.record_check(conn, model, "clip", ok, message)
+    return ok, message
+
+
+def check_rank(conn: dict, model: str, retry: bool = True) -> tuple[bool, str]:
+    """Run a small ranking prompt through one model. Never raises. The result is remembered."""
+    ok, message = _check_rank(conn, model, retry)
+    connectors.record_check(conn, model, "rank", ok, message)
+    return ok, message
+
+
+def _check_clip(conn: dict, model: str, retry: bool) -> tuple[bool, str]:
     t0 = time.time()
     try:
-        raw = connectors.chat(conn, TEST_CLIP, SYSTEM, model, 600)
+        raw = connectors.chat(conn, TEST_CLIP, SYSTEM, model, 600, retry=retry)
     except connectors.ConnectorError as e:
-        return {"ok": False, "message": str(e)}
+        return False, str(e)
     except Exception as e:
-        return {"ok": False, "message": f"Test failed: {str(e)[:200]}"}
+        return False, f"Test failed: {str(e)[:200]}"
     secs = time.time() - t0
     try:
         out = parse_json(raw)
     except ValueError as e:
-        return {"ok": False, "message": f"{model} answered in {secs:.1f} s but not with clean JSON ({e}). Surge would use "
-                                        "its built-in writer for every clip. Try a larger model."}
+        return False, (f"{model} answered in {secs:.1f} s but not with clean JSON ({e}). Surge would use its built-in "
+                       "writer for every clip. Try a larger model.")
     if not (out.get("hook") and out.get("title")):
-        return {"ok": False, "message": f"{model} answered with JSON but without the hook and title Surge asks for. "
-                                        "Try a larger model."}
-    message = f"{model} works: it answered in {secs:.1f} s with a hook ({str(out['hook'])[:40]}) and a title."
-    if rank_model != model:
-        t1 = time.time()
-        try:
-            picks = parse_json(connectors.chat(conn, TEST_RANK, SYSTEM, rank_model, 400)).get("picks")
-        except (connectors.ConnectorError, ValueError) as e:
-            return {"ok": False, "message": f"{message} The ranking model {rank_model} did not work: {e}"}
-        if not isinstance(picks, list) or not picks:
-            return {"ok": False, "message": f"{message} The ranking model {rank_model} answered without any picks. "
-                                            "Try a stronger model for ranking."}
-        message += f" Ranking model {rank_model} works too ({time.time() - t1:.1f} s)."
-    return {"ok": True, "message": message}
+        return False, f"{model} answered with JSON but without the hook and title Surge asks for. Try a larger model."
+    return True, f"{model} works: it answered in {secs:.1f} s with a hook ({str(out['hook'])[:40]}) and a title."
+
+
+def _check_rank(conn: dict, model: str, retry: bool) -> tuple[bool, str]:
+    t0 = time.time()
+    try:
+        picks = parse_json(connectors.chat(conn, TEST_RANK, SYSTEM, model, 400, retry=retry)).get("picks")
+    except (connectors.ConnectorError, ValueError) as e:
+        return False, f"The ranking model {model} did not work: {e}"
+    except Exception as e:
+        return False, f"The ranking model {model} did not work: {str(e)[:200]}"
+    if not isinstance(picks, list) or not picks:
+        return False, f"The ranking model {model} answered without any picks. Try a stronger model for ranking."
+    return True, f"Ranking model {model} works too ({time.time() - t0:.1f} s)."
+
+
+def test(conn: dict) -> dict:
+    """Check a connector's clip model, and its ranking model when that is a different one. Never raises."""
+    model, rank_model = conn["model"], conn.get("rank_model") or conn["model"]
+    ok, message = check_clip(conn, model)
+    if ok and rank_model != model:
+        ok, more = check_rank(conn, rank_model)
+        message = f"{message} {more}"
+    return {"ok": ok, "message": message}
 
 
 def test_active() -> dict:

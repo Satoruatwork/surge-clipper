@@ -2,6 +2,12 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.4.2
+
+- Connect **Google Gemini**, **OpenCode Go** or **OpenCode Zen** with just a key: press Connect and Surge tests the best models your key can use with a real clip prompt, then keeps the first that answers properly for clips and for ranking. A free Gemini key gets Gemini Flash at no cost.
+- **Pick for me** does the same for any other service, and **Fetch models** now lists what each model costs Surge per 1,000 clips and per broadcast, best and cheapest first.
+- New **Best and cheapest models across your keys** card under Settings, AI writer: it compares every service you added and names the best and the cheapest model for writing clips and for ranking a broadcast, with a Use button that tests the model before switching. Models that failed on your key are left out.
+
 ## 0.4.1
 
 - **Posts a day** now goes as high as you set it. Pick **Spread through the day** on an account or a group, or for several accounts at once, and Surge spaces that many posts evenly between the hours you choose (all day by default), each a few minutes off the exact time: 30 a day is one about every 48 minutes. Set times still post once each, and the account now tells you when it has fewer times than posts a day.

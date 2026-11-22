@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from surge import connectors, llm  # noqa: E402
+from surge import connectors, llm, modelpick  # noqa: E402
 
 
 class Reply:
@@ -29,8 +29,10 @@ def completion(text: str, finish="stop") -> Reply:
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
     monkeypatch.setattr(connectors, "FILE", tmp_path / "connectors.json")
+    monkeypatch.setattr(connectors, "CHECKS_FILE", tmp_path / "model_checks.json")
     monkeypatch.setattr(connectors, "_cache", None)
     monkeypatch.setattr(connectors, "_quirks", {})
+    monkeypatch.setattr(modelpick, "_memo", {})
     monkeypatch.setattr(connectors.config, "get", lambda key: "")
     monkeypatch.setattr(connectors.config, "save", lambda patch: None)
 
@@ -46,7 +48,7 @@ def serve(monkeypatch, *replies):
     """Fake the OpenAI-style POST: each call returns the next reply and records (url, headers, body)."""
     calls, queue = [], list(replies)
 
-    def post(url, headers, body):
+    def post(url, headers, body, retry=True):
         calls.append((url, headers, body))
         answer = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(answer, Exception):
@@ -218,7 +220,8 @@ def test_list_models(monkeypatch):
     monkeypatch.setattr(connectors, "_get", get)
     conn = {"protocol": "openai", "base_url": "https://x.example/v1", "api_key": "k"}
     assert connectors.list_models(conn) == ["gemini-3.8-flash", "gemini-4-hydrogen"]
-    assert seen[0] == ("https://x.example/v1/models", {"Authorization": "Bearer k"})
+    assert seen[0][0] == "https://x.example/v1/models" and seen[0][1]["Authorization"] == "Bearer k"
+    assert seen[0][1]["User-Agent"].startswith("Surge/")
     connectors.list_models({"protocol": "anthropic", "base_url": "https://api.anthropic.com", "api_key": "k"})
     assert seen[1][0] == "https://api.anthropic.com/v1/models" and seen[1][1]["x-api-key"] == "k"
     monkeypatch.setattr(connectors, "_get", lambda url, headers: Reply(None, 401, text="no"))
@@ -294,7 +297,9 @@ def test_api_round_trip_never_returns_the_key(monkeypatch):
     body = r.json()
     cid = body["active"]
     assert body["connectors"][0]["has_key"] and body["presets"] and body["recommended"]["picks"]
-    assert client.post("/api/connectors/models", json={"id": cid}).json() == {"models": ["deepseek-flash"]}
+    listed = client.post("/api/connectors/models", json={"id": cid}).json()
+    assert listed["models"] == ["deepseek-flash"] and listed["best"]["clip"] == "deepseek-flash"
+    assert "sk-test-1234567890" not in str(listed)
     assert client.post("/api/connectors", json=openai_form(model="")).status_code == 400
     assert client.post("/api/connectors/test", json={"base_url": "http://example.com"}).json()["ok"] is False
     assert client.delete(f"/api/connectors/{cid}").json()["connectors"] == []

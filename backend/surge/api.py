@@ -17,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (__version__, bus, campaigns, captions, chat, config, connectors, db, distribute, fx, growth, instagram,
-               library, live, llm, pipeline, render, setup, sites, tools, transcribe, updates, vod, watch, youtube)
+               library, live, llm, modelpick, pipeline, render, setup, sites, tools, transcribe, updates, vod, watch,
+               youtube)
 from .config import ASSETS, DATA, RUNS, UI_DIST
 
 app = FastAPI(title="Surge")
@@ -385,8 +386,39 @@ def connectors_test(body: dict):
 
 @app.post("/api/connectors/models")
 def connectors_models(body: dict):
+    """What the service offers, with prices and Surge's best and cheapest picks."""
     conn = _connector_call(lambda: connectors.draft(body, need_model=False))
-    return {"models": _connector_call(lambda: connectors.list_models(conn))}
+    return modelpick.listing(_connector_call(lambda: modelpick.offer(conn, fresh=True)), conn)
+
+
+@app.post("/api/connectors/pick")
+def connectors_pick(body: dict):
+    """Test the best candidates on this key and return the first clip and ranking models that work."""
+    conn = _connector_call(lambda: connectors.draft(body, need_model=False))
+    result = _connector_call(lambda: modelpick.autopick(conn))
+    result["listing"] = modelpick.listing(modelpick.offer(conn), conn)  # the list autopick just read, from the cache
+    return result
+
+
+@app.get("/api/connectors/picks")
+def connectors_picks():
+    """The best and the cheapest model for clips and for ranking across every saved connector."""
+    return modelpick.across(connectors.saved())
+
+
+@app.post("/api/connectors/{cid}/use")
+def connectors_use(cid: str, body: dict):
+    """Switch a saved connector to one model for clips or for ranking, after it passes Surge's test."""
+    conn = next((c for c in connectors.saved() if c["id"] == cid), None) or _404()
+    role, model = body.get("role"), str(body.get("model") or "").strip()[:120]
+    if role not in ("clip", "rank") or not model:
+        raise HTTPException(400, "Say which model, and whether it is for clips or for ranking.")
+    ok, message = (llm.check_clip if role == "clip" else llm.check_rank)(conn, model)
+    if not ok:
+        raise HTTPException(400, message)
+    _connector_call(lambda: connectors.save({"id": cid, "model" if role == "clip" else "rank_model": model}))
+    _connector_call(lambda: connectors.activate(cid))
+    return {**connectors.overview(), "message": message}
 
 
 @app.post("/api/connectors/{cid}/activate")
