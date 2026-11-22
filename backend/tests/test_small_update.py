@@ -111,10 +111,13 @@ def test_the_swap_script_updates_the_folder_and_restarts(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the swap script is a Windows batch file")
-def test_the_swap_script_waits_for_surge_to_close(tmp_path):
+def test_the_swap_script_waits_for_surge_to_close(tmp_path, monkeypatch):
     """The wait must really wait without a console (`timeout` returns at once there, and the copy hit a running
     Surge.exe)."""
     import time
+    exe = Path(shutil.which("hostname") or r"C:\Windows\System32\HOSTNAME.EXE").read_bytes()
+    monkeypatch.setitem(OLD, "Surge.exe", exe + b"v1")  # the restart must find a real (harmless) program,
+    monkeypatch.setitem(NEW, "Surge.exe", exe + b"v2")  # or Windows shows a "can't run" dialog
     old, zpath = build_patch(tmp_path)
     work = tmp_path / "work"
     plan = updates.stage(zpath, work / "files")
