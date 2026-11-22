@@ -84,6 +84,16 @@ export async function openUpdate() {
   }
 }
 
+/** Small update: Surge downloads only the changed files, checks them, then restarts into the new version. */
+export async function installUpdate() {
+  try {
+    const job = await api.post<UpdateInfo['job']>('/api/update/install')
+    setState((s) => (s.update ? { update: { ...s.update, job } } : {}))
+  } catch (e) {
+    toast(errorText(e), 'bad')
+  }
+}
+
 // ------------------------------------------------------------- loaders
 export const load = {
   async state() {
@@ -203,7 +213,10 @@ function onMessage(m: Msg) {
       soon('watch', load.watch, 300)
       break
     case 'update':
-      setState({ update: d as unknown as UpdateInfo })
+      setState((s) => ({ update: { ...(s.update ?? {}), ...(d as unknown as UpdateInfo) } }))
+      break
+    case 'update_job':
+      setState((s) => (s.update ? { update: { ...s.update, job: d as unknown as UpdateInfo['job'] } } : {}))
       break
     case 'log':
       setState((s) => ({ logs: [...s.logs.slice(-199), d as unknown as LogEntry] }))

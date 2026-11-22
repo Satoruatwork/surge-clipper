@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { errorText, load, openUpdate, setState, settingsUnsaved, toast, useStore } from '../lib/store'
+import { errorText, load, setState, settingsUnsaved, toast, useStore } from '../lib/store'
 import type { Settings as S, UpdateInfo } from '../lib/types'
 import { AiConnectors } from '../components/AiConnectors'
+import { UpdateActions } from '../components/UpdateBanner'
 import { Field, Range, Seg, Toggle } from '../components/ui'
 
 const SECTIONS = [
@@ -257,7 +258,7 @@ export function Settings() {
               <Toggle checked={!!d.check_updates} onChange={set('check_updates')} label="Look for a newer version when Surge starts" />
               <div className="update-row">
                 <button className="btn sm" disabled={checking} onClick={checkNow}>{checking ? 'Checking…' : 'Check now'}</button>
-                {update?.available && <button className="btn sm primary" onClick={() => void openUpdate()}>Download {update.latest}</button>}
+                {update?.available && <UpdateActions u={update} compact />}
                 <span className="hint">
                   Version {update?.current ?? '…'}{update?.available ? `, ${update.latest} is available` : ''}. Surge only asks GitHub for the latest release; your clips, accounts and settings never leave this PC.
                 </span>

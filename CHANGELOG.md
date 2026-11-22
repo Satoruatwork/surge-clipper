@@ -2,6 +2,10 @@
 
 Each `## <version>` section becomes that release's notes on GitHub and in the app's "What's new".
 
+## 0.4.4
+
+- Small updates: when a new version is out, **Update now** downloads only the files that changed (usually a few megabytes instead of the whole 300 MB installer), checks every file against the release's checksums, keeps a copy of the files it replaces, then restarts Surge into the new version and starts your live recordings again. If anything doesn't check out, the old files stay and the full installer is still one click away.
+
 ## 0.4.3
 
 - Posting no longer fails when YouTube's daily upload limits are used up. Surge counts your Google project's uploads against the allowance in Setup and learns each channel's own daily cap from YouTube's refusals. When a limit is reached, uploads wait (until YouTube's quota day turns, or until the channel's oldest upload is a day old) and the waiting posts move to new slots after it instead of failing. Shorts upload at most a day before their slot, so today's limit goes to today's posts, and the schedule never plans a day with more posts than your project can upload. Posts that failed on a limit in the last three days come back in line by themselves.

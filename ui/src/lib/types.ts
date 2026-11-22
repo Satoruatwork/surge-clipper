@@ -185,6 +185,13 @@ export interface LogEntry { text: string; level: 'info' | 'warn' | 'error'; sour
 
 export type Settings = Record<string, string | number | boolean>
 
+export interface UpdateJob {
+  state: 'idle' | 'downloading' | 'checking' | 'restarting' | 'failed'
+  progress: number
+  message: string
+  error: string | null
+}
+
 export interface UpdateInfo {
   current: string
   latest: string | null
@@ -193,6 +200,10 @@ export interface UpdateInfo {
   download: string | null
   size: number | null
   sha256: string | null
+  /** A small update from this version: only the files that changed. */
+  patch: { url: string; size: number | null; sha256: string | null } | null
+  can_patch: boolean
+  job: UpdateJob
   notes: string
   published: string | null
   checked: number | null

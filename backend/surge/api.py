@@ -123,6 +123,15 @@ def update_open():
     return {"ok": True}
 
 
+@app.post("/api/update/install")
+def update_install():
+    """Small update: download only the changed files, check them, then restart into the new version."""
+    try:
+        return updates.install()
+    except updates.UpdateError as e:
+        raise HTTPException(409, str(e))
+
+
 @app.post("/api/settings/google-secret")
 async def google_secret(file: UploadFile):
     data = await file.read()

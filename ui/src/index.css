@@ -342,6 +342,26 @@ a:hover {
   word-break: break-all;
 }
 
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-13);
+  color: var(--mist);
+}
+
+.update-progress progress {
+  width: 140px;
+  height: 6px;
+  accent-color: var(--pool);
+}
+
+.update-err {
+  flex: 1 0 100%;
+  color: var(--sodium);
+  font-size: var(--t-12);
+}
+
 .update-row {
   display: flex;
   flex-wrap: wrap;

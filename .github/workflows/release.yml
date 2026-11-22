@@ -37,6 +37,42 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: ./packaging/build.ps1 -Version $env:REF_NAME
 
+      - name: Manifest and small update from the previous release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # The app updates itself from a patch zip holding only the files that changed since its version: one patch
+          # from each of the last three releases, so skipping a version or two still gets a small update.
+          $version = $env:REF_NAME.TrimStart('v')
+          python packaging/patch.py manifest build/dist/Surge build/installer/manifest.json --version $version
+          $prevs = @(gh release list --limit 20 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[].tagName' |
+            Where-Object { $_ -ne $env:REF_NAME } | Select-Object -First 3)
+          if (-not $prevs) { Write-Host "No earlier release: no small update."; exit 0 }
+          foreach ($prev in $prevs) {
+            $d = "build/prev/$prev"
+            New-Item -ItemType Directory -Force $d | Out-Null
+            gh release download $prev -p manifest.json -D $d 2>$null
+            if (-not (Test-Path "$d/manifest.json")) {
+              # a release from before manifests: install it into a scratch folder and list its files
+              gh release download $prev -p 'Surge-Setup-*.exe' -D $d
+              $setup = Get-Item "$d/Surge-Setup-*.exe"
+              $dir = Join-Path $env:RUNNER_TEMP "install-$prev"
+              $p = Start-Process $setup.FullName -Wait -PassThru -ArgumentList @(
+                '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', '/MERGETASKS=!desktopicon', "/DIR=$dir")
+              if ($p.ExitCode -ne 0) { throw "Installing $prev for comparison failed (exit code $($p.ExitCode))" }
+              python packaging/patch.py manifest $dir "$d/manifest.json" --version $prev
+              Remove-Item $setup.FullName
+            }
+            python packaging/patch.py patch build/dist/Surge "$d/manifest.json" build/installer --from $prev --to $version
+          }
+          Get-ChildItem build/installer/Surge-Patch-*.zip, build/installer/manifest.json | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()) *$($_.Name)" |
+              Add-Content build/installer/SHA256SUMS.txt -Encoding ascii
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: surge-installer
@@ -60,16 +96,18 @@ jobs:
           }
           $notes = ($notes -join "`n").Trim()
           if ($notes) {
-            $notes += "`n`nRun the installer and Surge updates in place. If Windows SmartScreen warns about an unknown publisher, choose More info, then Run anyway. The SHA-256 is in SHA256SUMS.txt."
+            $notes += "`n`nIn Surge, Update now downloads only the files that changed (the Surge-Patch zip) and restarts by itself. Or run the installer: Surge updates in place. If Windows SmartScreen warns about an unknown publisher, choose More info, then Run anyway. The SHA-256 of every file is in SHA256SUMS.txt."
             $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
             Set-Content $notesFile $notes -Encoding utf8
             $noteArgs = @('--notes-file', $notesFile)
           } else { $noteArgs = @('--generate-notes') }
+          $extra = @(Get-ChildItem build/installer/Surge-Patch-*.zip, build/installer/manifest.json -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName })
           $assets = gh release view $env:REF_NAME --json assets --jq '.assets[].name' 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt --verify-tag --title "Surge $env:REF_NAME" @noteArgs
+            gh release create $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt @extra --verify-tag --title "Surge $env:REF_NAME" @noteArgs
           } elseif ($assets -notcontains $setup.Name) {
-            gh release upload $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt
+            gh release upload $env:REF_NAME $setup.FullName build/installer/SHA256SUMS.txt @extra
           } else {
             Write-Host "Release $env:REF_NAME already has $($setup.Name); leaving it as is."
           }

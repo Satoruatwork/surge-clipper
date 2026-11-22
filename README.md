@@ -26,8 +26,11 @@ Good to know:
 - Twitch and YouTube change often. To update the downloader, run
   `"%LOCALAPPDATA%\Programs\Surge\yt-dlp.exe" -U`.
 - **Updates**: Surge asks GitHub for the newest release when it starts and every 6 hours while it runs. When there is one,
-  a banner at the top offers the download; run the new installer and it updates in place. Only the latest-release
-  info is requested: your clips, accounts and settings never leave your PC. Turn it off in Settings, Engine.
+  a banner at the top offers **Update now**: Surge downloads only the files that changed since your version (usually a
+  few megabytes), checks each one against the release's checksums, keeps a copy of the files it replaces, restarts into
+  the new version and starts your live recordings again. When there's no small update for your version (you skipped
+  some), the banner offers the full installer instead, which updates in place. Only the latest-release info is
+  requested: your clips, accounts and settings never leave your PC. Turn the check off in Settings, Engine.
 
 ## Start it
 
@@ -288,8 +291,10 @@ git tag v0.1.0; git push origin v0.1.0
 ```
 
 The **Release** workflow (`.github/workflows/release.yml`) builds the installer on GitHub and attaches it to a new
-release. Installed copies show it in the update banner on their next check (right away after a restart). The **CI**
-workflow runs the tests and builds the UI on every push and pull request.
+release, with `manifest.json` (every file of the app and its SHA-256) and `Surge-Patch-<previous>-to-<new>.zip` (only
+the files that changed since the previous release, made by `packaging/patch.py`). Installed copies show the update in
+the banner on their next check (right away after a restart). The **CI** workflow runs the tests and builds the UI on
+every push and pull request.
 
 ## Code signing policy
 
