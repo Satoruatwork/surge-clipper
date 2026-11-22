@@ -26,6 +26,9 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
+      - name: Install ffmpeg (the recording tests cut real media)
+        run: choco install ffmpeg --no-progress -y
+
       - name: Engine tests
         run: |
           python -m pip install -r backend/requirements-dev.txt

@@ -84,6 +84,15 @@ def test_next_slot_windows_cap_and_gap(monkeypatch):
     assert datetime.fromtimestamp(t3).date() > datetime.fromtimestamp(t1).date()
 
 
+def _have_ffmpeg() -> bool:
+    from surge import tools
+    try:
+        return bool(tools.ffmpeg() and tools.ffprobe())
+    except FileNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(not _have_ffmpeg(), reason="needs ffmpeg and ffprobe")
 def test_a_hole_in_a_recording_stays_real_time(tmp_path):
     """A live capture with a dropout: audio, picture and hole detection must all keep the hole, so the voice and
     captions after it stay in step with the picture (they used to slide 4 to 10 seconds early)."""
